@@ -1,0 +1,30 @@
+{
+  "name": "newapi-price-sync",
+  "version": "1.0.0",
+  "description": "A tool for managing and syncing New API model ratios",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:web\"",
+    "dev:server": "npm run dev -w packages/server",
+    "dev:web": "npm run dev -w packages/web",
+    "build": "npm run build -w packages/shared && npm run build -w packages/server && npm run build -w packages/web",
+    "build:server": "npm run build -w packages/server",
+    "build:web": "npm run build -w packages/web",
+    "start": "node packages/server/dist/index.js",
+    "test": "npm run test -w packages/server && npm run test -w packages/web",
+    "test:server": "npm run test -w packages/server",
+    "test:web": "npm run test -w packages/web"
+  },
+  "keywords": [
+    "new-api",
+    "price-sync",
+    "model-ratio",
+    "openai",
+    "anthropic"
+  ],
+  "author": "Your Name",
+  "license": "SEE LICENSE IN LICENSE"
+}
