@@ -1,5 +1,7 @@
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { SQLiteStore } from './services/sqliteStore.js';
 import { createProxyRouter } from './routes/proxy.js';
 import { createPricesRouter } from './routes/prices.js';
@@ -21,6 +23,9 @@ import { createChannelSourceRatesRouter } from './routes/channelSourceRates.js';
 import { SplitService } from './services/splitService.js';
 import { createChannelSplitRouter } from './routes/channelSplit.js';
 import { createModelGroupRouter } from './routes/modelGroups.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const PORT = parseInt(process.env.PORT ?? '3001', 10);
 
@@ -90,6 +95,17 @@ app.use('/api/channel-split', createChannelSplitRouter(splitService));
 
 // Model group routes
 app.use('/api/model-groups', createModelGroupRouter());
+
+// Serve static files from web dist in production
+if (process.env.NODE_ENV === 'production') {
+  const webDistPath = path.join(__dirname, '../../web/dist');
+  app.use(express.static(webDistPath));
+
+  // SPA fallback - serve index.html for all non-API routes
+  app.get('*', (_req, res) => {
+    res.sendFile(path.join(webDistPath, 'index.html'));
+  });
+}
 
 // Clear all data endpoint
 app.post('/api/data/clear', (_req, res) => {
