@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Form, Input, Button, Alert, Card, Space, message } from 'antd';
 import { LinkOutlined, CheckCircleOutlined, EditOutlined } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import { useAppContext } from '../context/AppContext';
 import { proxyForward } from '../api/client';
 import type { ConnectionSettings } from '@newapi-sync/shared';
@@ -17,6 +18,7 @@ import type { ConnectionSettings } from '@newapi-sync/shared';
 export default function ConnectionConfig() {
   const { state, dispatch } = useAppContext();
   const { settings, status } = state.connection;
+  const navigate = useNavigate();
 
   const [editing, setEditing] = useState(!settings);
   const [testing, setTesting] = useState(false);
@@ -38,6 +40,10 @@ export default function ConnectionConfig() {
         dispatch({ type: 'SET_CONNECTION', payload: values });
         message.success('连接成功！');
         setEditing(false);
+        // 跳转到主页
+        setTimeout(() => {
+          navigate('/dashboard');
+        }, 500);
       } else {
         throw new Error(resp.error ?? '连接失败');
       }
