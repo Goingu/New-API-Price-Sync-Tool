@@ -1114,11 +1114,6 @@ export class SQLiteStore {
       createdAt: row.created_at,
     }));
   }
-      enabled: row.enabled === 1,
-      isOwnInstance: row.is_own_instance === 1,
-      createdAt: row.created_at,
-    }));
-  }
 
   getChannelSourceById(id: number): ChannelSource | null {
     const row = this.db
