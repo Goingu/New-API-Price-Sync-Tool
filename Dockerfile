@@ -16,7 +16,6 @@ RUN npm ci
 # Copy source code
 COPY packages/web ./packages/web
 COPY packages/shared ./packages/shared
-COPY tsconfig.json ./
 
 # Build frontend
 RUN npm run build -w packages/web
@@ -37,7 +36,6 @@ RUN npm ci
 # Copy source code
 COPY packages/server ./packages/server
 COPY packages/shared ./packages/shared
-COPY tsconfig.json ./
 
 # Build backend
 RUN npm run build -w packages/server
