@@ -13,7 +13,8 @@ COPY packages/shared/package*.json ./packages/shared/
 # Install dependencies
 RUN npm ci
 
-# Copy source code
+# Copy source code and config
+COPY tsconfig.base.json ./
 COPY packages/web ./packages/web
 COPY packages/shared ./packages/shared
 
@@ -33,7 +34,8 @@ COPY packages/shared/package*.json ./packages/shared/
 # Install dependencies
 RUN npm ci
 
-# Copy source code
+# Copy source code and config
+COPY tsconfig.base.json ./
 COPY packages/server ./packages/server
 COPY packages/shared ./packages/shared
 
