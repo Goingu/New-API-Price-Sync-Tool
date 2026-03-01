@@ -267,6 +267,13 @@ export default function ChannelSourcesPage() {
   const columns: ColumnsType<ChannelSource> = [
     { title: 'ID', dataIndex: 'id', key: 'id', width: 60 },
     { title: '名称', dataIndex: 'name', key: 'name', width: 150 },
+    {
+      title: '分组',
+      dataIndex: 'groupName',
+      key: 'groupName',
+      width: 120,
+      render: (groupName: string | undefined) => groupName ? <Tag color="purple">{groupName}</Tag> : <span style={{ color: '#999' }}>-</span>
+    },
     { title: 'Base URL', dataIndex: 'baseUrl', key: 'baseUrl', ellipsis: true },
     {
       title: '类型',
@@ -437,6 +444,9 @@ export default function ChannelSourcesPage() {
         <Form form={form} layout="vertical">
           <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入名称' }]}>
             <Input />
+          </Form.Item>
+          <Form.Item name="groupName" label="分组名称" tooltip="可选,用于区分同一渠道的不同价格分组(如VIP1、VIP2等)">
+            <Input placeholder="如: VIP1, 普通用户, 企业版等" />
           </Form.Item>
           <Form.Item name="baseUrl" label="Base URL" rules={[{ required: true, message: '请输入 Base URL' }]}>
             <Input placeholder="https://api.example.com" />
