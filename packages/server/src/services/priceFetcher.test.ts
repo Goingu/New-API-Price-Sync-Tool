@@ -287,7 +287,7 @@ import fc from 'fast-check';
 /** Supported provider keys that parseLiteLLMEntry will accept */
 const SUPPORTED_PROVIDER_KEYS = [
   'openai', 'anthropic', 'deepseek', 'vertex_ai', 'volcengine',
-  'alibaba', 'moonshot', 'zhipuai', 'baidu', 'minimax',
+  'dashscope', 'moonshot', 'zhipuai', 'baidu', 'minimax',
   'xai', 'mistral', 'cohere', 'perplexity',
 ];
 
