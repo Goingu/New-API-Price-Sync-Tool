@@ -90,28 +90,56 @@ export default function App() {
       locale={zhCN}
       theme={{
         token: {
-          colorPrimary: '#1a73e8',
-          colorBgContainer: '#ffffff',
-          colorBgLayout: '#f0f4f9',
-          borderRadius: 16,
-          fontFamily: '"Google Sans", "Inter", -apple-system, system-ui, sans-serif',
-          boxShadowSecondary: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
-          controlHeight: 40,
+          // shadcn/ui 风格配色
+          colorPrimary: '#18181b',        // 深灰黑色作为主色
+          colorInfo: '#3b82f6',           // 蓝色用于信息提示
+          colorSuccess: '#22c55e',        // 绿色
+          colorWarning: '#f59e0b',        // 橙色
+          colorError: '#ef4444',          // 红色
+          colorBgContainer: '#ffffff',    // 白色背景
+          colorBgLayout: '#fafafa',       // 浅灰背景
+          colorBorder: '#e5e7eb',         // 边框颜色
+          colorBorderSecondary: '#f3f4f6',
+          borderRadius: 8,                // shadcn 风格的小圆角
+          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+          fontSize: 14,
+          controlHeight: 36,              // 稍微小一点的控件高度
+          boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+          boxShadowSecondary: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1)',
         },
         components: {
           Layout: {
-            headerBg: '#f0f4f9',
-            siderBg: '#f0f4f9',
-            bodyBg: '#f0f4f9',
+            headerBg: '#ffffff',
+            headerBorderBottom: '1px solid #e5e7eb',
+            siderBg: '#ffffff',
+            bodyBg: '#fafafa',
           },
           Menu: {
             itemBg: 'transparent',
-            itemHoverBg: '#e8f0fe',
-            itemSelectedBg: '#e8f0fe',
-            itemSelectedColor: '#1a73e8',
-            itemActiveBg: '#e8f0fe',
-            itemBorderRadius: 24,
-            itemMarginInline: 12,
+            itemHoverBg: '#f3f4f6',
+            itemSelectedBg: '#f3f4f6',
+            itemSelectedColor: '#18181b',
+            itemActiveBg: '#f3f4f6',
+            itemBorderRadius: 6,
+            itemMarginInline: 4,
+            itemPaddingInline: 12,
+          },
+          Button: {
+            borderRadius: 6,
+            controlHeight: 36,
+            fontWeight: 500,
+          },
+          Card: {
+            borderRadius: 8,
+            boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1)',
+          },
+          Table: {
+            borderRadius: 8,
+            headerBg: '#fafafa',
+          },
+          Input: {
+            borderRadius: 6,
+            controlHeight: 36,
           },
         }
       }}
