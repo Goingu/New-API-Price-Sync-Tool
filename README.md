@@ -18,6 +18,10 @@
 - ✅ **自动签到** - 支持渠道源自动签到
 - 🏥 **活性检测** - 定期检测模型可用性
 - 📱 **现代化 UI** - 基于 Ant Design 的美观界面
+<img width="2559" height="1306" alt="8aa7be42-0872-4293-9815-c299382b1e08" src="https://github.com/user-attachments/assets/c4cc1b84-2b18-467f-bd50-81ae508ccd7f" />
+<img width="2559" height="1306" alt="image" src="https://github.com/user-attachments/assets/50fdb963-eba7-4dea-8f19-bdaf0ecc5c4d" />
+<img width="2559" height="1306" alt="image" src="https://github.com/user-attachments/assets/74d1d9fc-bb26-4439-93bc-cbd144688f6b" />
+<img width="2559" height="1306" alt="image" src="https://github.com/user-attachments/assets/02b11c02-e043-4346-979e-61d4b1db6524" />
 
 ## 🚀 快速开始
 
