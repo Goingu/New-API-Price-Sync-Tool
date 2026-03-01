@@ -14,16 +14,22 @@ function roundTo6(value: number): number {
  * - completionRatio = outputPricePerMillion / inputPricePerMillion
  */
 export function convert(price: ModelPrice, provider?: string): RatioResult {
+  if (price.pricingType === 'per_request') {
+    return {
+      modelId: price.modelId,
+      provider,
+      modelRatio: 0,
+      completionRatio: 0,
+      pricingType: 'per_request',
+      pricePerRequest: price.pricePerRequest ?? 0,
+    };
+  }
+
   const modelRatio = roundTo6(price.inputPricePerMillion / BASE_INPUT_PRICE);
   const completionRatio = roundTo6(price.outputPricePerMillion / price.inputPricePerMillion);
-
-  return {
-    modelId: price.modelId,
-    provider,
-    modelRatio,
-    completionRatio,
-  };
+  return { modelId: price.modelId, provider, modelRatio, completionRatio, pricingType: 'per_token' };
 }
+
 
 /** Convert a batch of ModelPrice entries to RatioResult[]. */
 export function convertBatch(prices: ModelPrice[], provider?: string): RatioResult[] {

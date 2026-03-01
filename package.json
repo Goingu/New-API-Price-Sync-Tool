@@ -26,5 +26,8 @@
     "anthropic"
   ],
   "author": "Your Name",
-  "license": "SEE LICENSE IN LICENSE"
+  "license": "SEE LICENSE IN LICENSE",
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
 }

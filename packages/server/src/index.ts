@@ -12,6 +12,15 @@ import { CheckinScheduler } from './services/checkinScheduler.js';
 import { createLivenessRouter } from './routes/liveness.js';
 import { LivenessService } from './services/livenessService.js';
 import { LivenessScheduler } from './services/livenessScheduler.js';
+import { PriorityService } from './services/priorityService.js';
+import { PriorityScheduler } from './services/priorityScheduler.js';
+import { createPriorityRouter } from './routes/priority.js';
+import { CacheCleanupScheduler } from './services/cacheCleanupScheduler.js';
+import { createSettingsRouter } from './routes/settings.js';
+import { createChannelSourceRatesRouter } from './routes/channelSourceRates.js';
+import { SplitService } from './services/splitService.js';
+import { createChannelSplitRouter } from './routes/channelSplit.js';
+import { createModelGroupRouter } from './routes/modelGroups.js';
 
 const PORT = parseInt(process.env.PORT ?? '3001', 10);
 
@@ -25,6 +34,16 @@ const checkinScheduler = new CheckinScheduler(checkinService, store);
 // Initialize liveness service and scheduler
 const livenessService = new LivenessService(store);
 const livenessScheduler = new LivenessScheduler(livenessService, store);
+
+// Initialize priority service and scheduler
+const priorityService = new PriorityService(store);
+const priorityScheduler = new PriorityScheduler(priorityService, store);
+
+// Initialize split service
+const splitService = new SplitService(store);
+
+// Initialize cache cleanup scheduler
+const cacheCleanupScheduler = new CacheCleanupScheduler(store);
 
 // Create Express app
 const app = express();
@@ -57,6 +76,21 @@ app.use('/api/liveness', createLivenessRouter(store, livenessService, livenessSc
 // Channel sources routes
 app.use('/api/channel-sources', createChannelSourcesRouter(store));
 
+// Priority routes
+app.use('/api/priority', createPriorityRouter(priorityService, priorityScheduler));
+
+// Channel source rates routes
+app.use('/api/channel-source-rates', createChannelSourceRatesRouter(store));
+
+// Settings routes
+app.use('/api/settings', createSettingsRouter(store));
+
+// Channel split routes
+app.use('/api/channel-split', createChannelSplitRouter(splitService));
+
+// Model group routes
+app.use('/api/model-groups', createModelGroupRouter());
+
 // Clear all data endpoint
 app.post('/api/data/clear', (_req, res) => {
   try {
@@ -81,6 +115,8 @@ app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
   checkinScheduler.start();
   livenessScheduler.start();
+  priorityScheduler.start();
+  cacheCleanupScheduler.start();
 });
 
 export { app, store };

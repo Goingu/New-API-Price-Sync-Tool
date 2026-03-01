@@ -10,6 +10,7 @@ import {
     WarningOutlined,
     ThunderboltOutlined,
     ClockCircleOutlined,
+    WechatOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAppContext } from '../context/AppContext';
@@ -87,9 +88,9 @@ export default function Dashboard() {
         const fetchCheckinStats = async () => {
             try {
                 const resp = await getCheckinRecords(undefined, 100);
-                if (resp.success && resp.records) {
-                    const total = resp.records.length;
-                    const success = resp.records.filter((r) => r.success).length;
+                if (resp.success && resp.data) {
+                    const total = resp.data.length;
+                    const success = resp.data.filter((r) => r.success).length;
                     const failed = total - success;
                     setCheckinStats({ total, success, failed });
                 }
@@ -113,49 +114,127 @@ export default function Dashboard() {
                     欢迎回来
                 </Title>
                 <Text type="secondary" style={{ fontSize: 16 }}>
-                    您的 New API 价格同步中心。管理倍率、对比价格、维持最新。
+                    您的 New API 中转管理控制台。管理倍率、对比价格、维持最新。
                 </Text>
             </div>
 
-            {/* Usage Guide */}
-            <Alert
-                type="info"
-                showIcon
-                message="快速开始指南"
-                description={
-                    <div>
-                        <p style={{ marginBottom: 12, fontWeight: 600 }}>首次使用流程：</p>
-                        <ol style={{ marginBottom: 12, paddingLeft: 20 }}>
-                            <li style={{ marginBottom: 8 }}>
-                                <strong>配置连接</strong> - 在"设置"页面配置您的 New API 实例连接信息
-                            </li>
-                            <li style={{ marginBottom: 8 }}>
-                                <strong>添加渠道源</strong> - 在"渠道源管理"页面添加您找到的中转商（渠道商）
-                            </li>
-                            <li style={{ marginBottom: 8 }}>
-                                <strong>启用模型</strong> - 在您的 New API 后台启用渠道商的新模型
-                            </li>
-                            <li style={{ marginBottom: 8 }}>
-                                <strong>同步倍率</strong> - 在"渠道源倍率对比"页面，开启"只看未设置倍率的模型"，一键同步倍率
-                            </li>
-                        </ol>
-                        <p style={{ marginBottom: 12, fontWeight: 600 }}>日常使用：</p>
-                        <ul style={{ marginBottom: 0, paddingLeft: 20 }}>
-                            <li style={{ marginBottom: 8 }}>
-                                <strong>查看倍率</strong> - "当前倍率"页面查看所有已配置的模型倍率
-                            </li>
-                            <li style={{ marginBottom: 8 }}>
-                                <strong>更新价格</strong> - "抓取价格"获取上游最新价格，"对比更新"调整倍率
-                            </li>
-                            <li style={{ marginBottom: 8 }}>
-                                <strong>对比渠道</strong> - "渠道源倍率对比"找出最便宜的渠道商
-                            </li>
-                        </ul>
-                    </div>
-                }
-                closable
-                style={{ marginBottom: 24 }}
-            />
+            {/* Usage Guide and WeChat QR Code */}
+            <Row gutter={24} style={{ marginBottom: 24 }}>
+                <Col xs={24} lg={16}>
+                    <Alert
+                        type="info"
+                        showIcon
+                        message="快速开始指南"
+                        description={
+                            <div>
+                                <p style={{ marginBottom: 12, fontWeight: 600 }}>首次使用流程：</p>
+                                <ol style={{ marginBottom: 12, paddingLeft: 20 }}>
+                                    <li style={{ marginBottom: 8 }}>
+                                        <strong>配置连接</strong> - 在"设置"页面配置您的 New API 实例连接信息
+                                    </li>
+                                    <li style={{ marginBottom: 8 }}>
+                                        <strong>添加渠道源</strong> - 在"渠道源管理"页面添加您找到的中转商（渠道商）
+                                    </li>
+                                    <li style={{ marginBottom: 8 }}>
+                                        <strong>启用模型</strong> - 在您的 New API 后台启用渠道商的新模型
+                                    </li>
+                                    <li style={{ marginBottom: 8 }}>
+                                        <strong>同步倍率</strong> - 在"渠道源倍率对比"页面，开启"只看未设置倍率的模型"，一键同步倍率
+                                    </li>
+                                </ol>
+                                <p style={{ marginBottom: 12, fontWeight: 600 }}>日常使用：</p>
+                                <ul style={{ marginBottom: 0, paddingLeft: 20 }}>
+                                    <li style={{ marginBottom: 8 }}>
+                                        <strong>查看倍率</strong> - "当前倍率"页面查看所有已配置的模型倍率
+                                    </li>
+                                    <li style={{ marginBottom: 8 }}>
+                                        <strong>更新价格</strong> - "抓取价格"获取上游最新价格，"对比更新"调整倍率
+                                    </li>
+                                    <li style={{ marginBottom: 8 }}>
+                                        <strong>对比渠道</strong> - "渠道源倍率对比"找出最便宜的渠道商
+                                    </li>
+                                </ul>
+                            </div>
+                        }
+                        closable
+                        style={{ height: '100%' }}
+                    />
+                </Col>
+                <Col xs={24} lg={8}>
+                    <Card bordered={false} style={{ background: '#ffffff', height: '100%' }}>
+                        <Space align="center" style={{ marginBottom: 16 }}>
+                            <WechatOutlined style={{ fontSize: 20, color: '#07c160' }} />
+                            <Title level={5} style={{ margin: 0 }}>联系我们</Title>
+                        </Space>
+                        <div style={{ textAlign: 'center', marginBottom: 20 }}>
+                            <Text strong style={{ display: 'block', marginBottom: 12, fontSize: 14 }}>
+                                扫码进群，注明来意
+                            </Text>
+                            <div style={{
+                                display: 'inline-block',
+                                padding: 10,
+                                background: '#f5f5f5',
+                                borderRadius: 8,
+                                border: '1px solid #e0e0e0'
+                            }}>
+                                <img
+                                    src="/wechat-group.png"
+                                    alt="微信群二维码"
+                                    style={{
+                                        width: 160,
+                                        height: 160,
+                                        display: 'block'
+                                    }}
+                                    onError={(e) => {
+                                        const target = e.target as HTMLImageElement;
+                                        target.style.display = 'none';
+                                        const parent = target.parentElement;
+                                        if (parent) {
+                                            parent.innerHTML = '<div style="width: 160px; height: 160px; display: flex; align-items: center; justify-content: center; color: #999; font-size: 12px; text-align: center;">请添加二维码<br/>wechat-group.png</div>';
+                                        }
+                                    }}
+                                />
+                            </div>
+                            <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12, lineHeight: '18px' }}>
+                                添加微信获取更多技术支持和交流
+                            </Text>
+                        </div>
+                        <div style={{ textAlign: 'center' }}>
+                            <Text strong style={{ display: 'block', marginBottom: 12, fontSize: 14 }}>
+                                扫码赞助
+                            </Text>
+                            <div style={{
+                                display: 'inline-block',
+                                padding: 10,
+                                background: '#f5f5f5',
+                                borderRadius: 8,
+                                border: '1px solid #e0e0e0'
+                            }}>
+                                <img
+                                    src="/wechat-sponsor.png"
+                                    alt="赞助二维码"
+                                    style={{
+                                        width: 160,
+                                        height: 160,
+                                        display: 'block'
+                                    }}
+                                    onError={(e) => {
+                                        const target = e.target as HTMLImageElement;
+                                        target.style.display = 'none';
+                                        const parent = target.parentElement;
+                                        if (parent) {
+                                            parent.innerHTML = '<div style="width: 160px; height: 160px; display: flex; align-items: center; justify-content: center; color: #999; font-size: 12px; text-align: center;">请添加二维码<br/>wechat-sponsor.png</div>';
+                                        }
+                                    }}
+                                />
+                            </div>
+                            <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12, lineHeight: '18px' }}>
+                                您的赞助是项目持续发展的动力
+                            </Text>
+                        </div>
+                    </Card>
+                </Col>
+            </Row>
 
             {/* Quick Stats Grid */}
             <Row gutter={[24, 24]} style={{ marginBottom: 32 }}>
@@ -307,7 +386,7 @@ export default function Dashboard() {
                             onClick={() => navigate('/fetch-prices')}
                         >
                             <CloudDownloadOutlined style={{ fontSize: 32, color: '#1a73e8', marginBottom: 16 }} />
-                            <Title level={5} style={{ margin: 0, color: '#1a73e8' }}>抓取上游价格</Title>
+                            <Title level={5} style={{ margin: 0, color: '#1a73e8' }}>抓取官方价格</Title>
                             <Text type="secondary">从各大提供商同步最新的价格数据</Text>
                         </Card>
                     </Col>

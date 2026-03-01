@@ -1,0 +1,18 @@
+﻿src/api/client.ts(321,16): error TS2304: Cannot find name 'RatioConfig'.
+src/api/client.ts(334,19): error TS2304: Cannot find name 'RatioConfig'.
+src/pages/CheckinManagement.tsx(135,53): error TS2559: Type '{ autoCheckin: any; checkinTime: any; }' has no properties in common with type 'Partial<ChannelSourceWithCheckin>'.
+src/pages/ComparisonUpdate.tsx(224,52): error TS2339: Property 'suggestedRatio' does not exist on type 'ComparisonRow'.
+src/pages/ComparisonUpdate.tsx(227,25): error TS2339: Property 'suggestedRatio' does not exist on type 'ComparisonRow'.
+src/pages/ComparisonUpdate.tsx(228,35): error TS2339: Property 'suggestedCompletionRatio' does not exist on type 'ComparisonRow'.
+src/pages/ComparisonUpdate.tsx(247,13): error TS2339: Property 'suggestedRatio' does not exist on type 'ComparisonRow'.
+src/pages/ComparisonUpdate.tsx(248,30): error TS2339: Property 'suggestedRatio' does not exist on type 'ComparisonRow'.
+src/pages/ComparisonUpdate.tsx(249,40): error TS2339: Property 'suggestedCompletionRatio' does not exist on type 'ComparisonRow'.
+src/pages/ComparisonUpdate.tsx(424,35): error TS2339: Property 'suggestedRatio' does not exist on type 'ComparisonRow'.
+src/pages/ComparisonUpdate.tsx(425,48): error TS2339: Property 'suggestedRatio' does not exist on type 'ComparisonRow'.
+src/pages/ComparisonUpdate.tsx(426,58): error TS2339: Property 'suggestedCompletionRatio' does not exist on type 'ComparisonRow'.
+src/pages/ComparisonUpdate.tsx(440,35): error TS2339: Property 'suggestedRatio' does not exist on type 'ComparisonRow'.
+src/pages/ComparisonUpdate.tsx(441,45): error TS2339: Property 'suggestedCompletionRatio' does not exist on type 'ComparisonRow'.
+src/pages/Dashboard.tsx(90,42): error TS2339: Property 'records' does not exist on type 'ApiResponse<CheckinRecord[]>'.
+src/pages/Dashboard.tsx(91,40): error TS2339: Property 'records' does not exist on type 'ApiResponse<CheckinRecord[]>'.
+src/pages/Dashboard.tsx(92,42): error TS2339: Property 'records' does not exist on type 'ApiResponse<CheckinRecord[]>'.
+src/pages/Dashboard.tsx(92,58): error TS7006: Parameter 'r' implicitly has an 'any' type.

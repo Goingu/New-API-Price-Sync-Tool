@@ -11,7 +11,7 @@ export function createLivenessRouter(
   const router = Router();
 
   /**
-   * GET /api/liveness/configs — 获取所有检测配置
+   * GET /api/liveness/configs �?获取所有检测配�?
    */
   router.get('/configs', (_req: Request, res: Response) => {
     try {
@@ -24,7 +24,7 @@ export function createLivenessRouter(
   });
 
   /**
-   * POST /api/liveness/configs — 添加检测配置
+   * POST /api/liveness/configs �?添加检测配�?
    */
   router.post('/configs', (req: Request, res: Response) => {
     try {
@@ -50,11 +50,11 @@ export function createLivenessRouter(
   });
 
   /**
-   * PUT /api/liveness/configs/:id — 更新检测配置
+   * PUT /api/liveness/configs/:id �?更新检测配�?
    */
   router.put('/configs/:id', (req: Request, res: Response) => {
     try {
-      const id = parseInt(req.params.id, 10);
+      const id = parseInt(req.params.id as string, 10);
       if (isNaN(id)) {
         res.status(400).json({ success: false, error: 'Invalid config ID' });
         return;
@@ -69,11 +69,11 @@ export function createLivenessRouter(
   });
 
   /**
-   * DELETE /api/liveness/configs/:id — 删除检测配置
+   * DELETE /api/liveness/configs/:id �?删除检测配�?
    */
   router.delete('/configs/:id', (req: Request, res: Response) => {
     try {
-      const id = parseInt(req.params.id, 10);
+      const id = parseInt(req.params.id as string, 10);
       if (isNaN(id)) {
         res.status(400).json({ success: false, error: 'Invalid config ID' });
         return;
@@ -88,17 +88,16 @@ export function createLivenessRouter(
   });
 
   /**
-   * POST /api/liveness/check/:configId/:modelId — 手动检测单个模型
+   * POST /api/liveness/check/:configId/:modelId �?手动检测单个模�?
    */
-  router.post('/check/:configId/:modelId', async (req: Request, res: Response) => {
+  router.post('/check/:configId/:modelId', async (req: Request<{ configId: string; modelId: string }>, res: Response) => {
     try {
       const configId = parseInt(req.params.configId, 10);
       if (isNaN(configId)) {
         res.status(400).json({ success: false, error: 'Invalid config ID' });
         return;
       }
-      const { modelId } = req.params;
-      const result = await livenessService.checkModel(configId, modelId);
+      const result = await livenessService.checkModel(configId, req.params.modelId);
       res.json({ success: true, data: result });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -107,11 +106,11 @@ export function createLivenessRouter(
   });
 
   /**
-   * POST /api/liveness/check/:configId — 手动检测配置下所有模型
+   * POST /api/liveness/check/:configId �?手动检测配置下所有模�?
    */
   router.post('/check/:configId', async (req: Request, res: Response) => {
     try {
-      const configId = parseInt(req.params.configId, 10);
+      const configId = parseInt(req.params.configId as string, 10);
       if (isNaN(configId)) {
         res.status(400).json({ success: false, error: 'Invalid config ID' });
         return;
@@ -125,7 +124,7 @@ export function createLivenessRouter(
   });
 
   /**
-   * POST /api/liveness/check-all — 手动检测所有配置的所有模型
+   * POST /api/liveness/check-all �?手动检测所有配置的所有模�?
    */
   router.post('/check-all', async (_req: Request, res: Response) => {
     try {
@@ -138,7 +137,7 @@ export function createLivenessRouter(
   });
 
   /**
-   * GET /api/liveness/results — 获取检测结果（支持 configId、modelId、limit 查询参数）
+   * GET /api/liveness/results �?获取检测结果（支持 configId、modelId、limit 查询参数�?
    */
   router.get('/results', (req: Request, res: Response) => {
     try {
@@ -154,11 +153,11 @@ export function createLivenessRouter(
   });
 
   /**
-   * GET /api/liveness/results/:configId/latest — 获取指定配置的最新检测结果
+   * GET /api/liveness/results/:configId/latest �?获取指定配置的最新检测结�?
    */
   router.get('/results/:configId/latest', (req: Request, res: Response) => {
     try {
-      const configId = parseInt(req.params.configId, 10);
+      const configId = parseInt(req.params.configId as string, 10);
       if (isNaN(configId)) {
         res.status(400).json({ success: false, error: 'Invalid config ID' });
         return;

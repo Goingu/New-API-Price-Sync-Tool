@@ -14,6 +14,14 @@ import type {
   ChannelSource,
   CheckinConfig,
   ChannelSourceWithCheckin,
+  ChannelPriceRateConfig,
+  PriorityRule,
+  PriorityScheduleConfig,
+  PriorityAdjustmentLog,
+  CachedRatioEntry,
+  SplitHistoryEntry,
+  SplitConfiguration,
+  ParentChannelAction,
 } from '@newapi-sync/shared';
 
 export class SQLiteStore {
@@ -104,6 +112,7 @@ export class SQLiteStore {
         api_key TEXT NOT NULL,
         user_id TEXT,
         enabled INTEGER NOT NULL DEFAULT 1,
+        is_own_instance INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL
       );
 
@@ -115,6 +124,114 @@ export class SQLiteStore {
         created_at TEXT NOT NULL,
         FOREIGN KEY (source_id) REFERENCES channel_sources(id) ON DELETE CASCADE
       );
+
+      CREATE TABLE IF NOT EXISTS channel_price_rates (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        channel_id INTEGER NOT NULL UNIQUE,
+        channel_name TEXT NOT NULL,
+        price_rate REAL NOT NULL CHECK (price_rate > 0),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS priority_rules (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        start_value INTEGER NOT NULL DEFAULT 100,
+        step INTEGER NOT NULL DEFAULT 10,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS priority_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS priority_adjustment_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        adjusted_at TEXT NOT NULL,
+        trigger_type TEXT NOT NULL,
+        has_changes INTEGER NOT NULL DEFAULT 0,
+        details_json TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS channel_source_ratio_cache (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_id INTEGER NOT NULL UNIQUE,
+        source_name TEXT NOT NULL,
+        ratio_config_json TEXT NOT NULL,
+        fetched_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        FOREIGN KEY (source_id) REFERENCES channel_sources(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_ratio_cache_expires 
+        ON channel_source_ratio_cache(expires_at);
+
+      CREATE TABLE IF NOT EXISTS channel_source_price_rates (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_id INTEGER NOT NULL UNIQUE,
+        source_name TEXT NOT NULL,
+        price_rate REAL NOT NULL CHECK (price_rate > 0),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (source_id) REFERENCES channel_sources(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS connection_settings (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        base_url TEXT NOT NULL,
+        api_key TEXT NOT NULL,
+        channel_id TEXT,
+        user_id TEXT,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS channel_split_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        split_at TEXT NOT NULL,
+        operator TEXT,
+        parent_channel_id INTEGER NOT NULL,
+        parent_channel_name TEXT NOT NULL,
+        parent_channel_config_json TEXT NOT NULL,
+        sub_channel_ids_json TEXT NOT NULL,
+        model_filter_json TEXT,
+        parent_action TEXT NOT NULL,
+        auto_priority_enabled INTEGER NOT NULL DEFAULT 0,
+        rollback_at TEXT,
+        rollback_status TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_split_history_parent 
+        ON channel_split_history(parent_channel_id);
+
+      CREATE INDEX IF NOT EXISTS idx_split_history_time 
+        ON channel_split_history(split_at DESC);
+
+      CREATE TABLE IF NOT EXISTS split_configurations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        description TEXT,
+        model_filter_json TEXT,
+        naming_pattern TEXT NOT NULL DEFAULT '{parent}-拆分-{model}',
+        parent_action TEXT NOT NULL DEFAULT 'disable',
+        auto_priority INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS model_manual_groups (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        model_id TEXT NOT NULL,
+        group_name TEXT NOT NULL,
+        channel_ids_json TEXT NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_model_manual_groups_model
+        ON model_manual_groups(model_id, sort_order ASC);
     `);
 
     // Migration: Add user_id column to existing tables if they don't have it
@@ -122,6 +239,9 @@ export class SQLiteStore {
 
     // Migration: Fix checkin_records foreign key to reference channel_sources
     this.migrateCheckinRecordsForeignKey();
+
+    // Migration: Add user_id to connection_settings
+    this.migrateConnectionSettingsUserId();
   }
 
   private migrateAddUserIdColumn(): void {
@@ -143,12 +263,15 @@ export class SQLiteStore {
       this.db.exec('ALTER TABLE liveness_configs ADD COLUMN user_id TEXT');
     }
 
-    // Check and add user_id to channel_sources if table exists
+    // Check and add user_id and is_own_instance to channel_sources if table exists
     try {
       const channelColumns = this.db.pragma('table_info(channel_sources)') as Array<{ name: string }>;
       if (channelColumns.length > 0) {
         if (!channelColumns.some(col => col.name === 'user_id')) {
           this.db.exec('ALTER TABLE channel_sources ADD COLUMN user_id TEXT');
+        }
+        if (!channelColumns.some(col => col.name === 'is_own_instance')) {
+          this.db.exec('ALTER TABLE channel_sources ADD COLUMN is_own_instance INTEGER NOT NULL DEFAULT 0');
         }
         // Remove auto_checkin and checkin_time from channel_sources if they exist
         // SQLite doesn't support DROP COLUMN, so we'll just ignore them
@@ -214,6 +337,19 @@ export class SQLiteStore {
     }
   }
 
+  private migrateConnectionSettingsUserId(): void {
+    try {
+      const columns = this.db.pragma('table_info(connection_settings)') as Array<{ name: string }>;
+      if (!columns.some(col => col.name === 'user_id')) {
+        console.log('[SQLiteStore] Adding user_id column to connection_settings...');
+        this.db.exec('ALTER TABLE connection_settings ADD COLUMN user_id TEXT');
+        console.log('[SQLiteStore] Migration completed successfully');
+      }
+    } catch (error) {
+      console.error('[SQLiteStore] Failed to add user_id column:', error);
+    }
+  }
+
   // --- Price History ---
 
   savePriceHistory(entry: PriceHistoryEntry): void {
@@ -258,11 +394,11 @@ export class SQLiteStore {
     const rows = this.db
       .prepare('SELECT id, fetched_at, provider, models_json FROM price_history ORDER BY id DESC')
       .all() as Array<{
-      id: number;
-      fetched_at: string;
-      provider: string;
-      models_json: string;
-    }>;
+        id: number;
+        fetched_at: string;
+        provider: string;
+        models_json: string;
+      }>;
 
     return rows
       .map((row) => {
@@ -361,8 +497,8 @@ export class SQLiteStore {
       target.apiKey,
       target.userId ?? null,
       target.enabled ? 1 : 0,
-      target.autoCheckin ? 1 : 0,
-      target.checkinTime ?? '00:05',
+      target.checkinConfig?.autoCheckin ? 1 : 0,
+      target.checkinConfig?.checkinTime ?? '00:05',
       createdAt
     );
     return {
@@ -372,8 +508,12 @@ export class SQLiteStore {
       apiKey: target.apiKey,
       userId: target.userId,
       enabled: target.enabled,
-      autoCheckin: target.autoCheckin ?? false,
-      checkinTime: target.checkinTime ?? '00:05',
+      checkinConfig: {
+        sourceId: result.lastInsertRowid as number,
+        autoCheckin: target.checkinConfig?.autoCheckin ?? false,
+        checkinTime: target.checkinConfig?.checkinTime ?? '00:05',
+        createdAt
+      },
       createdAt,
     };
   }
@@ -407,13 +547,13 @@ export class SQLiteStore {
       fields.push('enabled = ?');
       params.push(updates.enabled ? 1 : 0);
     }
-    if (updates.autoCheckin !== undefined) {
+    if (updates.checkinConfig?.autoCheckin !== undefined) {
       fields.push('auto_checkin = ?');
-      params.push(updates.autoCheckin ? 1 : 0);
+      params.push(updates.checkinConfig.autoCheckin ? 1 : 0);
     }
-    if (updates.checkinTime !== undefined) {
+    if (updates.checkinConfig?.checkinTime !== undefined) {
       fields.push('checkin_time = ?');
-      params.push(updates.checkinTime);
+      params.push(updates.checkinConfig.checkinTime);
     }
 
     if (fields.length > 0) {
@@ -432,16 +572,16 @@ export class SQLiteStore {
     const rows = this.db
       .prepare('SELECT id, name, base_url, api_key, user_id, enabled, auto_checkin, checkin_time, created_at FROM checkin_targets ORDER BY id ASC')
       .all() as Array<{
-      id: number;
-      name: string;
-      base_url: string;
-      api_key: string;
-      user_id: string | null;
-      enabled: number;
-      auto_checkin: number;
-      checkin_time: string;
-      created_at: string;
-    }>;
+        id: number;
+        name: string;
+        base_url: string;
+        api_key: string;
+        user_id: string | null;
+        enabled: number;
+        auto_checkin: number;
+        checkin_time: string;
+        created_at: string;
+      }>;
 
     return rows.map((row) => ({
       id: row.id,
@@ -468,16 +608,16 @@ export class SQLiteStore {
         WHERE cs.id = ?
       `)
       .get(id) as {
-      id: number;
-      name: string;
-      base_url: string;
-      api_key: string;
-      user_id: string | null;
-      enabled: number;
-      created_at: string;
-      auto_checkin: number | null;
-      checkin_time: string | null;
-    } | undefined;
+        id: number;
+        name: string;
+        base_url: string;
+        api_key: string;
+        user_id: string | null;
+        enabled: number;
+        created_at: string;
+        auto_checkin: number | null;
+        checkin_time: string | null;
+      } | undefined;
 
     if (!row) return null;
 
@@ -564,13 +704,13 @@ export class SQLiteStore {
         'SELECT id, target_id, checkin_at, success, quota, error FROM checkin_records WHERE target_id = ? ORDER BY id DESC LIMIT 1'
       )
       .get(targetId) as {
-      id: number;
-      target_id: number;
-      checkin_at: string;
-      success: number;
-      quota: string | null;
-      error: string | null;
-    } | undefined;
+        id: number;
+        target_id: number;
+        checkin_at: string;
+        success: number;
+        quota: string | null;
+        error: string | null;
+      } | undefined;
 
     if (!row) return null;
 
@@ -668,16 +808,16 @@ export class SQLiteStore {
     const rows = this.db
       .prepare('SELECT id, name, base_url, api_key, user_id, models_json, frequency, enabled, created_at FROM liveness_configs ORDER BY id ASC')
       .all() as Array<{
-      id: number;
-      name: string;
-      base_url: string;
-      api_key: string;
-      user_id: string | null;
-      models_json: string;
-      frequency: string;
-      enabled: number;
-      created_at: string;
-    }>;
+        id: number;
+        name: string;
+        base_url: string;
+        api_key: string;
+        user_id: string | null;
+        models_json: string;
+        frequency: string;
+        enabled: number;
+        created_at: string;
+      }>;
 
     return rows.map((row) => ({
       id: row.id,
@@ -696,16 +836,16 @@ export class SQLiteStore {
     const row = this.db
       .prepare('SELECT id, name, base_url, api_key, user_id, models_json, frequency, enabled, created_at FROM liveness_configs WHERE id = ?')
       .get(id) as {
-      id: number;
-      name: string;
-      base_url: string;
-      api_key: string;
-      user_id: string | null;
-      models_json: string;
-      frequency: string;
-      enabled: number;
-      created_at: string;
-    } | undefined;
+        id: number;
+        name: string;
+        base_url: string;
+        api_key: string;
+        user_id: string | null;
+        models_json: string;
+        frequency: string;
+        enabled: number;
+        created_at: string;
+      } | undefined;
 
     if (!row) return null;
 
@@ -803,14 +943,14 @@ export class SQLiteStore {
          ORDER BY lr.model_id ASC`
       )
       .all(configId) as Array<{
-      id: number;
-      config_id: number;
-      model_id: string;
-      checked_at: string;
-      status: string;
-      response_time_ms: number | null;
-      error: string | null;
-    }>;
+        id: number;
+        config_id: number;
+        model_id: string;
+        checked_at: string;
+        status: string;
+        response_time_ms: number | null;
+        error: string | null;
+      }>;
 
     return rows.map((row) => ({
       id: row.id,
@@ -843,7 +983,7 @@ export class SQLiteStore {
   addChannelSource(source: Omit<ChannelSource, 'id' | 'createdAt'>): ChannelSource {
     const createdAt = new Date().toISOString();
     const stmt = this.db.prepare(
-      'INSERT INTO channel_sources (name, base_url, api_key, user_id, enabled, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+      'INSERT INTO channel_sources (name, base_url, api_key, user_id, enabled, is_own_instance, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
     );
     const result = stmt.run(
       source.name,
@@ -851,6 +991,7 @@ export class SQLiteStore {
       source.apiKey,
       source.userId ?? null,
       source.enabled ? 1 : 0,
+      source.isOwnInstance ? 1 : 0,
       createdAt
     );
     return {
@@ -860,6 +1001,7 @@ export class SQLiteStore {
       apiKey: source.apiKey,
       userId: source.userId,
       enabled: source.enabled,
+      isOwnInstance: source.isOwnInstance,
       createdAt,
     };
   }
@@ -893,6 +1035,10 @@ export class SQLiteStore {
       fields.push('enabled = ?');
       params.push(updates.enabled ? 1 : 0);
     }
+    if (updates.isOwnInstance !== undefined) {
+      fields.push('is_own_instance = ?');
+      params.push(updates.isOwnInstance ? 1 : 0);
+    }
 
     if (fields.length > 0) {
       params.push(id);
@@ -908,16 +1054,17 @@ export class SQLiteStore {
 
   getChannelSources(): ChannelSource[] {
     const rows = this.db
-      .prepare('SELECT id, name, base_url, api_key, user_id, enabled, created_at FROM channel_sources ORDER BY id ASC')
+      .prepare('SELECT id, name, base_url, api_key, user_id, enabled, is_own_instance, created_at FROM channel_sources ORDER BY id ASC')
       .all() as Array<{
-      id: number;
-      name: string;
-      base_url: string;
-      api_key: string;
-      user_id: string | null;
-      enabled: number;
-      created_at: string;
-    }>;
+        id: number;
+        name: string;
+        base_url: string;
+        api_key: string;
+        user_id: string | null;
+        enabled: number;
+        is_own_instance: number;
+        created_at: string;
+      }>;
 
     return rows.map((row) => ({
       id: row.id,
@@ -926,22 +1073,24 @@ export class SQLiteStore {
       apiKey: row.api_key,
       userId: row.user_id ?? undefined,
       enabled: row.enabled === 1,
+      isOwnInstance: row.is_own_instance === 1,
       createdAt: row.created_at,
     }));
   }
 
   getChannelSourceById(id: number): ChannelSource | null {
     const row = this.db
-      .prepare('SELECT id, name, base_url, api_key, user_id, enabled, created_at FROM channel_sources WHERE id = ?')
+      .prepare('SELECT id, name, base_url, api_key, user_id, enabled, is_own_instance, created_at FROM channel_sources WHERE id = ?')
       .get(id) as {
-      id: number;
-      name: string;
-      base_url: string;
-      api_key: string;
-      user_id: string | null;
-      enabled: number;
-      created_at: string;
-    } | undefined;
+        id: number;
+        name: string;
+        base_url: string;
+        api_key: string;
+        user_id: string | null;
+        enabled: number;
+        is_own_instance: number;
+        created_at: string;
+      } | undefined;
 
     if (!row) return null;
 
@@ -952,6 +1101,7 @@ export class SQLiteStore {
       apiKey: row.api_key,
       userId: row.user_id ?? undefined,
       enabled: row.enabled === 1,
+      isOwnInstance: row.is_own_instance === 1,
       createdAt: row.created_at,
     };
   }
@@ -962,12 +1112,12 @@ export class SQLiteStore {
     const row = this.db
       .prepare('SELECT id, source_id, auto_checkin, checkin_time, created_at FROM checkin_configs WHERE source_id = ?')
       .get(sourceId) as {
-      id: number;
-      source_id: number;
-      auto_checkin: number;
-      checkin_time: string;
-      created_at: string;
-    } | undefined;
+        id: number;
+        source_id: number;
+        auto_checkin: number;
+        checkin_time: string;
+        created_at: string;
+      } | undefined;
 
     if (!row) return null;
 
@@ -1028,6 +1178,766 @@ export class SQLiteStore {
         checkinConfig: checkinConfig ?? undefined,
       };
     });
+  }
+
+  // ─── Channel Price Rates ───────────────────────────────────────────
+
+  getPriceRates(): ChannelPriceRateConfig[] {
+    const rows = this.db
+      .prepare(
+        'SELECT channel_id, channel_name, price_rate, created_at, updated_at FROM channel_price_rates ORDER BY channel_id ASC'
+      )
+      .all() as Array<{
+        channel_id: number;
+        channel_name: string;
+        price_rate: number;
+        created_at: string;
+        updated_at: string;
+      }>;
+
+    return rows.map((row) => ({
+      channelId: row.channel_id,
+      channelName: row.channel_name,
+      priceRate: row.price_rate,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+  }
+
+  setPriceRate(channelId: number, channelName: string, priceRate: number): void {
+    if (priceRate <= 0) {
+      throw new Error('priceRate must be greater than 0');
+    }
+
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO channel_price_rates (channel_id, channel_name, price_rate, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(channel_id) DO UPDATE SET
+           channel_name = excluded.channel_name,
+           price_rate = excluded.price_rate,
+           updated_at = excluded.updated_at`
+      )
+      .run(channelId, channelName, priceRate, now, now);
+  }
+
+  deletePriceRate(channelId: number): void {
+    this.db.prepare('DELETE FROM channel_price_rates WHERE channel_id = ?').run(channelId);
+  }
+
+  // ─── Channel Source Price Rates ────────────────────────────────────
+
+  getChannelSourcePriceRates(): Array<{ sourceId: number; sourceName: string; priceRate: number; createdAt: string; updatedAt: string }> {
+    const rows = this.db
+      .prepare(
+        'SELECT source_id, source_name, price_rate, created_at, updated_at FROM channel_source_price_rates ORDER BY source_id ASC'
+      )
+      .all() as Array<{
+        source_id: number;
+        source_name: string;
+        price_rate: number;
+        created_at: string;
+        updated_at: string;
+      }>;
+
+    return rows.map((row) => ({
+      sourceId: row.source_id,
+      sourceName: row.source_name,
+      priceRate: row.price_rate,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+  }
+
+  setChannelSourcePriceRate(sourceId: number, sourceName: string, priceRate: number): void {
+    if (priceRate <= 0) {
+      throw new Error('priceRate must be greater than 0');
+    }
+
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO channel_source_price_rates (source_id, source_name, price_rate, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(source_id) DO UPDATE SET
+           source_name = excluded.source_name,
+           price_rate = excluded.price_rate,
+           updated_at = excluded.updated_at`
+      )
+      .run(sourceId, sourceName, priceRate, now, now);
+  }
+
+  deleteChannelSourcePriceRate(sourceId: number): void {
+    this.db.prepare('DELETE FROM channel_source_price_rates WHERE source_id = ?').run(sourceId);
+  }
+
+  // ─── Priority Rules & Settings ──────────────────────────────────────
+
+  getRule(): PriorityRule {
+    const row = this.db
+      .prepare('SELECT start_value, step FROM priority_rules WHERE id = 1')
+      .get() as { start_value: number; step: number } | undefined;
+
+    if (!row) {
+      return { startValue: 100, step: 10 };
+    }
+
+    return { startValue: row.start_value, step: row.step };
+  }
+
+  setRule(rule: PriorityRule): void {
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO priority_rules (id, start_value, step, updated_at)
+         VALUES (1, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           start_value = excluded.start_value,
+           step = excluded.step,
+           updated_at = excluded.updated_at`
+      )
+      .run(rule.startValue, rule.step, now);
+  }
+
+  getAutoMode(): boolean {
+    const row = this.db
+      .prepare("SELECT value FROM priority_settings WHERE key = 'auto_mode'")
+      .get() as { value: string } | undefined;
+
+    return row?.value === 'true';
+  }
+
+  setAutoMode(enabled: boolean): void {
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO priority_settings (key, value, updated_at)
+         VALUES ('auto_mode', ?, ?)
+         ON CONFLICT(key) DO UPDATE SET
+           value = excluded.value,
+           updated_at = excluded.updated_at`
+      )
+      .run(String(enabled), now);
+  }
+
+  getScheduleConfig(): PriorityScheduleConfig {
+    const rows = this.db
+      .prepare("SELECT key, value FROM priority_settings WHERE key IN ('schedule_enabled', 'schedule_frequency')")
+      .all() as Array<{ key: string; value: string }>;
+
+    const map = new Map(rows.map((r) => [r.key, r.value]));
+
+    return {
+      enabled: map.get('schedule_enabled') === 'true',
+      frequency: (map.get('schedule_frequency') as PriorityScheduleConfig['frequency']) || '24h',
+    };
+  }
+
+  setScheduleConfig(config: PriorityScheduleConfig): void {
+    const now = new Date().toISOString();
+    const upsert = this.db.prepare(
+      `INSERT INTO priority_settings (key, value, updated_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT(key) DO UPDATE SET
+         value = excluded.value,
+         updated_at = excluded.updated_at`
+    );
+
+    const setAll = this.db.transaction(() => {
+      upsert.run('schedule_enabled', String(config.enabled), now);
+      upsert.run('schedule_frequency', config.frequency, now);
+    });
+
+    setAll();
+  }
+
+  saveAdjustmentLog(log: Omit<PriorityAdjustmentLog, 'id'>): PriorityAdjustmentLog {
+    const stmt = this.db.prepare(
+      `INSERT INTO priority_adjustment_logs (adjusted_at, trigger_type, has_changes, details_json)
+       VALUES (?, ?, ?, ?)`
+    );
+
+    const result = stmt.run(
+      log.adjustedAt,
+      log.triggerType,
+      log.hasChanges ? 1 : 0,
+      JSON.stringify(log.details)
+    );
+
+    return {
+      id: result.lastInsertRowid as number,
+      adjustedAt: log.adjustedAt,
+      triggerType: log.triggerType,
+      hasChanges: log.hasChanges,
+      details: log.details,
+    };
+  }
+
+  getAdjustmentLogs(limit?: number): PriorityAdjustmentLog[] {
+    let sql = 'SELECT * FROM priority_adjustment_logs ORDER BY adjusted_at DESC';
+    const params: unknown[] = [];
+
+    if (limit !== undefined) {
+      sql += ' LIMIT ?';
+      params.push(limit);
+    }
+
+    const rows = this.db.prepare(sql).all(...params) as Array<{
+      id: number;
+      adjusted_at: string;
+      trigger_type: string;
+      has_changes: number;
+      details_json: string;
+    }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      adjustedAt: row.adjusted_at,
+      triggerType: row.trigger_type as 'manual' | 'scheduled',
+      hasChanges: row.has_changes === 1,
+      details: JSON.parse(row.details_json),
+    }));
+  }
+
+  getAdjustmentLogById(id: number): PriorityAdjustmentLog | null {
+    const row = this.db
+      .prepare('SELECT * FROM priority_adjustment_logs WHERE id = ?')
+      .get(id) as {
+        id: number;
+        adjusted_at: string;
+        trigger_type: string;
+        has_changes: number;
+        details_json: string;
+      } | undefined;
+
+    if (!row) return null;
+
+    return {
+      id: row.id,
+      adjustedAt: row.adjusted_at,
+      triggerType: row.trigger_type as 'manual' | 'scheduled',
+      hasChanges: row.has_changes === 1,
+      details: JSON.parse(row.details_json),
+    };
+  }
+
+  // ─── Channel Source Ratio Cache ─────────────────────────────────────
+
+  /**
+   * Save or update a cached ratio entry (upsert operation).
+   * Uses INSERT OR REPLACE to ensure only one entry per source_id.
+   */
+  saveCachedRatio(entry: Omit<CachedRatioEntry, 'id'>): void {
+    try {
+      const stmt = this.db.prepare(
+        `INSERT INTO channel_source_ratio_cache 
+         (source_id, source_name, ratio_config_json, fetched_at, expires_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(source_id) DO UPDATE SET
+           source_name = excluded.source_name,
+           ratio_config_json = excluded.ratio_config_json,
+           fetched_at = excluded.fetched_at,
+           expires_at = excluded.expires_at`
+      );
+      
+      stmt.run(
+        entry.sourceId,
+        entry.sourceName,
+        JSON.stringify(entry.ratioConfig),
+        entry.fetchedAt,
+        entry.expiresAt
+      );
+    } catch (error) {
+      console.error('[SQLiteStore] Failed to save cached ratio:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all cached ratios that haven't expired yet.
+   * Automatically filters out entries where expires_at < current time.
+   */
+  getCachedRatios(maxAgeHours: number = 24): CachedRatioEntry[] {
+    try {
+      const now = new Date().toISOString();
+      const rows = this.db
+        .prepare(
+          `SELECT id, source_id, source_name, ratio_config_json, fetched_at, expires_at
+           FROM channel_source_ratio_cache
+           WHERE expires_at > ?
+           ORDER BY source_id ASC`
+        )
+        .all(now) as Array<{
+          id: number;
+          source_id: number;
+          source_name: string;
+          ratio_config_json: string;
+          fetched_at: string;
+          expires_at: string;
+        }>;
+
+      const parsedEntries: Array<CachedRatioEntry | null> = rows.map((row) => {
+        try {
+          return {
+            id: row.id,
+            sourceId: row.source_id,
+            sourceName: row.source_name,
+            ratioConfig: JSON.parse(row.ratio_config_json),
+            fetchedAt: row.fetched_at,
+            expiresAt: row.expires_at,
+          };
+        } catch (parseError) {
+          console.error(`[SQLiteStore] Failed to parse ratio config for source ${row.source_id}:`, parseError);
+          // Skip corrupted entries
+          return null;
+        }
+      });
+
+      return parsedEntries.filter((entry): entry is CachedRatioEntry => entry !== null);
+    } catch (error) {
+      console.error('[SQLiteStore] Failed to get cached ratios:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get cached ratio for a specific source by ID.
+   * Returns null if not found or expired.
+   */
+  getCachedRatioBySourceId(sourceId: number): CachedRatioEntry | null {
+    try {
+      const now = new Date().toISOString();
+      const row = this.db
+        .prepare(
+          `SELECT id, source_id, source_name, ratio_config_json, fetched_at, expires_at
+           FROM channel_source_ratio_cache
+           WHERE source_id = ? AND expires_at > ?`
+        )
+        .get(sourceId, now) as {
+          id: number;
+          source_id: number;
+          source_name: string;
+          ratio_config_json: string;
+          fetched_at: string;
+          expires_at: string;
+        } | undefined;
+
+      if (!row) return null;
+
+      try {
+        return {
+          id: row.id,
+          sourceId: row.source_id,
+          sourceName: row.source_name,
+          ratioConfig: JSON.parse(row.ratio_config_json),
+          fetchedAt: row.fetched_at,
+          expiresAt: row.expires_at,
+        };
+      } catch (parseError) {
+        console.error(`[SQLiteStore] Failed to parse ratio config for source ${sourceId}:`, parseError);
+        return null;
+      }
+    } catch (error) {
+      console.error(`[SQLiteStore] Failed to get cached ratio for source ${sourceId}:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Delete cached ratio for a specific source.
+   */
+  deleteCachedRatio(sourceId: number): void {
+    try {
+      this.db.prepare('DELETE FROM channel_source_ratio_cache WHERE source_id = ?').run(sourceId);
+    } catch (error) {
+      console.error(`[SQLiteStore] Failed to delete cached ratio for source ${sourceId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Clear all expired ratio cache entries.
+   * Returns the number of deleted entries.
+   */
+  clearExpiredRatioCache(): number {
+    try {
+      const now = new Date().toISOString();
+      const result = this.db
+        .prepare('DELETE FROM channel_source_ratio_cache WHERE expires_at <= ?')
+        .run(now);
+      return result.changes;
+    } catch (error) {
+      console.error('[SQLiteStore] Failed to clear expired ratio cache:', error);
+      return 0;
+    }
+  }
+
+  // ─── Connection Settings ────────────────────────────────────────────
+
+  /**
+   * Get the saved connection settings from database.
+   * Returns null if no settings are saved.
+   */
+  getConnectionSettings(): { baseUrl: string; apiKey: string; channelId?: string; userId?: string } | null {
+    try {
+      const row = this.db
+        .prepare('SELECT base_url, api_key, channel_id, user_id FROM connection_settings WHERE id = 1')
+        .get() as {
+          base_url: string;
+          api_key: string;
+          channel_id: string | null;
+          user_id: string | null;
+        } | undefined;
+
+      if (!row) return null;
+
+      return {
+        baseUrl: row.base_url,
+        apiKey: row.api_key,
+        channelId: row.channel_id ?? undefined,
+        userId: row.user_id ?? undefined,
+      };
+    } catch (error) {
+      console.error('[SQLiteStore] Failed to get connection settings:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Save or update connection settings (upsert operation).
+   */
+  saveConnectionSettings(settings: { baseUrl: string; apiKey: string; channelId?: string; userId?: string }): void {
+    try {
+      const now = new Date().toISOString();
+      const stmt = this.db.prepare(
+        `INSERT INTO connection_settings (id, base_url, api_key, channel_id, user_id, updated_at)
+         VALUES (1, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           base_url = excluded.base_url,
+           api_key = excluded.api_key,
+           channel_id = excluded.channel_id,
+           user_id = excluded.user_id,
+           updated_at = excluded.updated_at`
+      );
+      
+      stmt.run(
+        settings.baseUrl,
+        settings.apiKey,
+        settings.channelId ?? null,
+        settings.userId ?? null,
+        now
+      );
+    } catch (error) {
+      console.error('[SQLiteStore] Failed to save connection settings:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete connection settings from database.
+   */
+  deleteConnectionSettings(): void {
+    try {
+      this.db.prepare('DELETE FROM connection_settings WHERE id = 1').run();
+    } catch (error) {
+      console.error('[SQLiteStore] Failed to delete connection settings:', error);
+      throw error;
+    }
+  }
+
+  // ─── Channel Split History ──────────────────────────────────────────
+
+  /**
+   * Save a split history record to the database.
+   */
+  saveSplitHistory(entry: Omit<SplitHistoryEntry, 'id'>): SplitHistoryEntry {
+    try {
+      const stmt = this.db.prepare(
+        `INSERT INTO channel_split_history 
+         (split_at, operator, parent_channel_id, parent_channel_name, parent_channel_config_json, 
+          sub_channel_ids_json, model_filter_json, parent_action, auto_priority_enabled)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+
+      const result = stmt.run(
+        entry.splitAt,
+        entry.operator ?? null,
+        entry.parentChannelId,
+        entry.parentChannelName,
+        JSON.stringify(entry.parentChannelConfig),
+        JSON.stringify(entry.subChannelIds),
+        entry.modelFilter ? JSON.stringify(entry.modelFilter) : null,
+        entry.parentAction,
+        entry.autoPriorityEnabled ? 1 : 0
+      );
+
+      return {
+        id: result.lastInsertRowid as number,
+        ...entry,
+      };
+    } catch (error) {
+      console.error('[SQLiteStore] Failed to save split history:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get split history records with optional filtering.
+   */
+  getSplitHistory(options?: { limit?: number; parentChannelId?: number }): SplitHistoryEntry[] {
+    try {
+      let sql = `SELECT id, split_at, operator, parent_channel_id, parent_channel_name, 
+                        parent_channel_config_json, sub_channel_ids_json, model_filter_json, 
+                        parent_action, auto_priority_enabled, rollback_at, rollback_status
+                 FROM channel_split_history`;
+      const params: unknown[] = [];
+
+      if (options?.parentChannelId !== undefined) {
+        sql += ' WHERE parent_channel_id = ?';
+        params.push(options.parentChannelId);
+      }
+
+      sql += ' ORDER BY split_at DESC';
+
+      if (options?.limit !== undefined) {
+        sql += ' LIMIT ?';
+        params.push(options.limit);
+      }
+
+      const rows = this.db.prepare(sql).all(...params) as Array<{
+        id: number;
+        split_at: string;
+        operator: string | null;
+        parent_channel_id: number;
+        parent_channel_name: string;
+        parent_channel_config_json: string;
+        sub_channel_ids_json: string;
+        model_filter_json: string | null;
+        parent_action: string;
+        auto_priority_enabled: number;
+        rollback_at: string | null;
+        rollback_status: string | null;
+      }>;
+
+      return rows.map((row) => ({
+        id: row.id,
+        splitAt: row.split_at,
+        operator: row.operator ?? undefined,
+        parentChannelId: row.parent_channel_id,
+        parentChannelName: row.parent_channel_name,
+        parentChannelConfig: JSON.parse(row.parent_channel_config_json),
+        subChannelIds: JSON.parse(row.sub_channel_ids_json),
+        modelFilter: row.model_filter_json ? JSON.parse(row.model_filter_json) : undefined,
+        parentAction: row.parent_action as ParentChannelAction,
+        autoPriorityEnabled: row.auto_priority_enabled === 1,
+        rollbackAt: row.rollback_at ?? undefined,
+        rollbackStatus: row.rollback_status as 'success' | 'partial' | 'failed' | undefined,
+      }));
+    } catch (error) {
+      console.error('[SQLiteStore] Failed to get split history:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get a single split history record by ID.
+   */
+  getSplitHistoryById(id: number): SplitHistoryEntry | null {
+    try {
+      const row = this.db
+        .prepare(
+          `SELECT id, split_at, operator, parent_channel_id, parent_channel_name, 
+                  parent_channel_config_json, sub_channel_ids_json, model_filter_json, 
+                  parent_action, auto_priority_enabled, rollback_at, rollback_status
+           FROM channel_split_history
+           WHERE id = ?`
+        )
+        .get(id) as {
+          id: number;
+          split_at: string;
+          operator: string | null;
+          parent_channel_id: number;
+          parent_channel_name: string;
+          parent_channel_config_json: string;
+          sub_channel_ids_json: string;
+          model_filter_json: string | null;
+          parent_action: string;
+          auto_priority_enabled: number;
+          rollback_at: string | null;
+          rollback_status: string | null;
+        } | undefined;
+
+      if (!row) return null;
+
+      return {
+        id: row.id,
+        splitAt: row.split_at,
+        operator: row.operator ?? undefined,
+        parentChannelId: row.parent_channel_id,
+        parentChannelName: row.parent_channel_name,
+        parentChannelConfig: JSON.parse(row.parent_channel_config_json),
+        subChannelIds: JSON.parse(row.sub_channel_ids_json),
+        modelFilter: row.model_filter_json ? JSON.parse(row.model_filter_json) : undefined,
+        parentAction: row.parent_action as ParentChannelAction,
+        autoPriorityEnabled: row.auto_priority_enabled === 1,
+        rollbackAt: row.rollback_at ?? undefined,
+        rollbackStatus: row.rollback_status as 'success' | 'partial' | 'failed' | undefined,
+      };
+    } catch (error) {
+      console.error(`[SQLiteStore] Failed to get split history by id ${id}:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Update the rollback status of a split history record.
+   */
+  updateRollbackStatus(
+    id: number,
+    rollbackAt: string,
+    rollbackStatus: 'success' | 'partial' | 'failed'
+  ): void {
+    try {
+      this.db
+        .prepare(
+          'UPDATE channel_split_history SET rollback_at = ?, rollback_status = ? WHERE id = ?'
+        )
+        .run(rollbackAt, rollbackStatus, id);
+    } catch (error) {
+      console.error(`[SQLiteStore] Failed to update rollback status for history ${id}:`, error);
+      throw error;
+    }
+  }
+
+  // ─── Split Configurations ───────────────────────────────────────────
+
+  /**
+   * Save a split configuration to the database.
+   */
+  saveSplitConfig(config: Omit<SplitConfiguration, 'id'>): SplitConfiguration {
+    try {
+      const stmt = this.db.prepare(
+        `INSERT INTO split_configurations 
+         (name, description, model_filter_json, naming_pattern, parent_action, auto_priority, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+
+      const result = stmt.run(
+        config.name,
+        config.description ?? null,
+        config.modelFilter ? JSON.stringify(config.modelFilter) : null,
+        config.namingPattern,
+        config.parentAction,
+        config.autoPriority ? 1 : 0,
+        config.createdAt,
+        config.updatedAt
+      );
+
+      return {
+        id: result.lastInsertRowid as number,
+        ...config,
+      };
+    } catch (error) {
+      console.error('[SQLiteStore] Failed to save split config:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all split configurations.
+   */
+  getSplitConfigs(): SplitConfiguration[] {
+    try {
+      const rows = this.db
+        .prepare(
+          `SELECT id, name, description, model_filter_json, naming_pattern, parent_action, 
+                  auto_priority, created_at, updated_at
+           FROM split_configurations
+           ORDER BY created_at DESC`
+        )
+        .all() as Array<{
+          id: number;
+          name: string;
+          description: string | null;
+          model_filter_json: string | null;
+          naming_pattern: string;
+          parent_action: string;
+          auto_priority: number;
+          created_at: string;
+          updated_at: string;
+        }>;
+
+      return rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        description: row.description ?? undefined,
+        modelFilter: row.model_filter_json ? JSON.parse(row.model_filter_json) : undefined,
+        namingPattern: row.naming_pattern,
+        parentAction: row.parent_action as ParentChannelAction,
+        autoPriority: row.auto_priority === 1,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      }));
+    } catch (error) {
+      console.error('[SQLiteStore] Failed to get split configs:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get a single split configuration by ID.
+   */
+  getSplitConfigById(id: number): SplitConfiguration | null {
+    try {
+      const row = this.db
+        .prepare(
+          `SELECT id, name, description, model_filter_json, naming_pattern, parent_action, 
+                  auto_priority, created_at, updated_at
+           FROM split_configurations
+           WHERE id = ?`
+        )
+        .get(id) as {
+          id: number;
+          name: string;
+          description: string | null;
+          model_filter_json: string | null;
+          naming_pattern: string;
+          parent_action: string;
+          auto_priority: number;
+          created_at: string;
+          updated_at: string;
+        } | undefined;
+
+      if (!row) return null;
+
+      return {
+        id: row.id,
+        name: row.name,
+        description: row.description ?? undefined,
+        modelFilter: row.model_filter_json ? JSON.parse(row.model_filter_json) : undefined,
+        namingPattern: row.naming_pattern,
+        parentAction: row.parent_action as ParentChannelAction,
+        autoPriority: row.auto_priority === 1,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      };
+    } catch (error) {
+      console.error(`[SQLiteStore] Failed to get split config by id ${id}:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Delete a split configuration by ID.
+   */
+  deleteSplitConfig(id: number): void {
+    try {
+      this.db.prepare('DELETE FROM split_configurations WHERE id = ?').run(id);
+    } catch (error) {
+      console.error(`[SQLiteStore] Failed to delete split config ${id}:`, error);
+      throw error;
+    }
   }
 
   close(): void {

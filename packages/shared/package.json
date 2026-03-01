@@ -2,6 +2,9 @@
   "name": "@newapi-sync/shared",
   "version": "1.0.0",
   "private": true,
+  "scripts": {
+    "build": "tsc -b"
+  },
   "main": "./types.ts",
   "types": "./types.ts"
 }

@@ -64,7 +64,7 @@ export function createPricesRouter(store: SQLiteStore): Router {
    */
   router.post('/fetch/:provider', async (req: Request, res: Response) => {
     try {
-      const { provider } = req.params;
+      const provider = req.params.provider as string;
       const result = await fetchProviderPrices(provider);
 
       // Save to price_history if successful
@@ -106,7 +106,7 @@ export function createPricesRouter(store: SQLiteStore): Router {
    */
   router.get('/history/:modelId', (req: Request, res: Response) => {
     try {
-      const { modelId } = req.params;
+      const modelId = req.params.modelId as string;
       const entries = store.getPriceHistoryByModel(modelId);
       res.json({ success: true, entries });
     } catch (error) {

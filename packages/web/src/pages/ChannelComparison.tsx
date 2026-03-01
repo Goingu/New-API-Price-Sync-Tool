@@ -18,7 +18,9 @@ import {
   ReloadOutlined,
   ApiOutlined,
   SearchOutlined,
+  ControlOutlined,
 } from '@ant-design/icons';
+import { Link } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
 import type {
   Channel,
@@ -428,9 +430,14 @@ export default function ChannelComparison() {
 
   return (
     <div>
-      <Title level={4} style={{ marginBottom: 16 }}>
-        渠道对比
-      </Title>
+      <Space align="baseline" style={{ marginBottom: 16 }}>
+        <Title level={4} style={{ margin: 0 }}>
+          渠道对比
+        </Title>
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          (测试功能,待定)
+        </Text>
+      </Space>
 
       {/* Action bar */}
       <Space style={{ marginBottom: 16 }} wrap>
@@ -459,6 +466,9 @@ export default function ChannelComparison() {
             (按 base_url 分组显示)
           </Text>
         </Space>
+        <Link to="/channel-priority">
+          <Button icon={<ControlOutlined />}>调配优先级</Button>
+        </Link>
       </Space>
 
       {/* Error display */}
@@ -597,6 +607,15 @@ export default function ChannelComparison() {
                         record.isCheapest ? 'row-cheapest' : ''
                       }
                     />
+                    {selectedComparison.channels.some((ch) => ch.isCheapest) && (
+                      <div style={{ marginTop: 12, textAlign: 'right' }}>
+                        <Link to="/channel-priority">
+                          <Button type="link" icon={<ControlOutlined />}>
+                            前往调配优先级
+                          </Button>
+                        </Link>
+                      </div>
+                    )}
                   </>
                 ) : (
                   <Alert

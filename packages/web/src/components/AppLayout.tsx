@@ -14,6 +14,10 @@ import {
   CheckCircleOutlined,
   HeartOutlined,
   ApiOutlined,
+  OrderedListOutlined,
+  EyeOutlined,
+  SplitCellsOutlined,
+  AppstoreOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAppContext } from '../context/AppContext';
@@ -25,9 +29,21 @@ const navItems = [
   { key: '/dashboard', icon: <DashboardOutlined />, label: '仪表盘' },
   { key: '/settings', icon: <SettingOutlined />, label: '设置' },
   { key: '/channel-sources', icon: <ApiOutlined />, label: '渠道源管理' },
-  { key: '/channel-source-ratios', icon: <SwapOutlined />, label: '渠道源倍率对比' },
-  { key: '/current-ratios', icon: <PercentageOutlined />, label: '当前倍率' },
-  { key: '/fetch-prices', icon: <CloudDownloadOutlined />, label: '抓取价格' },
+  { key: '/instance-ratio-viewer', icon: <EyeOutlined />, label: '实例模型倍率查看器' },
+  { key: '/channel-priority', icon: <OrderedListOutlined />, label: '渠道优先级' },
+  {
+    key: '/channel-split',
+    icon: <SplitCellsOutlined />,
+    label: (
+      <span>
+        渠道拆分
+        <span style={{ fontSize: 10, color: '#999', marginLeft: 4 }}>模型防御机制</span>
+      </span>
+    )
+  },
+  { key: '/model-groups', icon: <AppstoreOutlined />, label: '模型分组管理' },
+  { key: '/channel-source-ratios', icon: <SwapOutlined />, label: '实例站倍率同步' },
+  { key: '/fetch-prices', icon: <CloudDownloadOutlined />, label: '抓取官方价格' },
   { key: '/comparison', icon: <SwapOutlined />, label: '对比更新' },
   { key: '/channel-comparison', icon: <BranchesOutlined />, label: '渠道对比' },
   { key: '/price-history', icon: <HistoryOutlined />, label: '价格历史' },
@@ -61,7 +77,7 @@ export default function AppLayout() {
         style={{ background: 'transparent', borderRight: 'none' }}
       >
         <div style={{ height: 32, margin: 16, textAlign: 'center', color: '#1a73e8', fontWeight: 'bold', fontSize: collapsed ? 14 : 16, whiteSpace: 'nowrap', overflow: 'hidden' }}>
-          {collapsed ? 'PS' : '价格同步'}
+          {collapsed ? '中转' : '中转管理控制台'}
         </div>
         <Menu
           theme="light"

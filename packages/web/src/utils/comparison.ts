@@ -42,16 +42,55 @@ export function compareRatios(
     upstreamMap.set(u.modelId, u);
   }
 
+  const currentModelPrice = current.modelPrice ?? {};
+
   const allModelIds = new Set<string>([
     ...Object.keys(current.modelRatio),
+    ...Object.keys(currentModelPrice),
     ...upstreamMap.keys(),
   ]);
 
   for (const modelId of allModelIds) {
-    const hasCurrent = modelId in current.modelRatio;
+    const hasCurrentRatio = modelId in current.modelRatio;
+    const hasCurrentPrice = modelId in currentModelPrice;
     const upstreamEntry = upstreamMap.get(modelId);
 
-    if (hasCurrent && upstreamEntry) {
+    // --- Per-request upstream model ---
+    if (upstreamEntry?.pricingType === 'per_request') {
+      const currentPrice = hasCurrentPrice ? currentModelPrice[modelId] : undefined;
+      const newPrice = upstreamEntry.pricePerRequest ?? 0;
+
+      let status: ComparisonRow['status'];
+      let ratioDiffPercent: number | undefined;
+
+      if (currentPrice !== undefined) {
+        ratioDiffPercent = currentPrice === 0 ? 0 : ((newPrice - currentPrice) / currentPrice) * 100;
+        if (newPrice === currentPrice) {
+          status = 'unchanged';
+        } else if (newPrice > currentPrice) {
+          status = 'increased';
+        } else {
+          status = 'decreased';
+        }
+      } else {
+        status = 'new';
+      }
+
+      rows.push({
+        modelId,
+        provider: upstreamEntry.provider || '',
+        pricingType: 'per_request',
+        currentPrice,
+        newPrice,
+        ratioDiffPercent,
+        status,
+        selected: false,
+      });
+      continue;
+    }
+
+    // --- Per-token logic (existing behavior) ---
+    if (hasCurrentRatio && upstreamEntry) {
       // Both sides have this model
       const currentRatio = current.modelRatio[modelId];
       const currentCompletionRatio = current.completionRatio[modelId] ?? 1;
@@ -73,33 +112,50 @@ export function compareRatios(
       rows.push({
         modelId,
         provider: upstreamEntry.provider || '',
+        pricingType: 'per_token',
         currentRatio,
         currentCompletionRatio,
         newRatio,
         newCompletionRatio,
+        suggestedRatio: newRatio,
+        suggestedCompletionRatio: newCompletionRatio,
         ratioDiffPercent,
         status,
         selected: false,
       });
-    } else if (upstreamEntry && !hasCurrent) {
-      // Only upstream has this model → new
+    } else if (upstreamEntry && !hasCurrentRatio) {
+      // Only upstream has this model → new per-token
       rows.push({
         modelId,
         provider: upstreamEntry.provider || '',
+        pricingType: 'per_token',
         newRatio: upstreamEntry.modelRatio,
         newCompletionRatio: upstreamEntry.completionRatio,
+        suggestedRatio: upstreamEntry.modelRatio,
+        suggestedCompletionRatio: upstreamEntry.completionRatio,
         status: 'new',
         selected: false,
       });
-    } else {
-      // Only current has this model → removed
-      // Infer provider from model name since it's not in upstream data
+    } else if (hasCurrentRatio) {
+      // Only current has this model in modelRatio → removed per-token
       const inferredProvider = inferProviderFromModelId(modelId);
       rows.push({
         modelId,
         provider: inferredProvider,
+        pricingType: 'per_token',
         currentRatio: current.modelRatio[modelId],
         currentCompletionRatio: current.completionRatio[modelId] ?? 1,
+        status: 'removed',
+        selected: false,
+      });
+    } else if (hasCurrentPrice) {
+      // Only current has this model in modelPrice → removed per-request
+      const inferredProvider = inferProviderFromModelId(modelId);
+      rows.push({
+        modelId,
+        provider: inferredProvider,
+        pricingType: 'per_request',
+        currentPrice: currentModelPrice[modelId],
         status: 'removed',
         selected: false,
       });
@@ -108,3 +164,4 @@ export function compareRatios(
 
   return rows;
 }
+

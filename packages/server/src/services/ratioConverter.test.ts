@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import * as fc from 'fast-check';
 import { convert, convertBatch, ratioToPrice, BASE_INPUT_PRICE } from './ratioConverter';
 import type { ModelPrice } from '@newapi-sync/shared';
 
@@ -186,6 +187,42 @@ describe('ratioConverter', () => {
   describe('BASE_INPUT_PRICE', () => {
     it('is 0.75 (GPT-3.5-turbo baseline)', () => {
       expect(BASE_INPUT_PRICE).toBe(0.75);
+    });
+  });
+
+  describe('Property 3: 按次计费模型转换结果', () => {
+    /**
+     * Validates: Requirements 3.1, 3.2, 3.4
+     *
+     * For any ModelPrice with pricingType: 'per_request', the convert function should return:
+     * - modelRatio = 0
+     * - completionRatio = 0
+     * - pricingType = 'per_request'
+     * - pricePerRequest equal to the input's pricePerRequest value
+     */
+    const perRequestModelPriceArb = fc.record({
+      modelId: fc.string({ minLength: 1, maxLength: 50 }),
+      modelName: fc.string({ minLength: 1, maxLength: 50 }),
+      provider: fc.string({ minLength: 1, maxLength: 30 }),
+      pricingType: fc.constant('per_request' as const),
+      inputPricePerMillion: fc.constant(0),
+      outputPricePerMillion: fc.constant(0),
+      pricePerRequest: fc.double({ min: 0.0001, max: 1000, noNaN: true }),
+    });
+
+    it('per-request model convert returns modelRatio=0, completionRatio=0, pricingType=per_request, and preserves pricePerRequest', () => {
+      fc.assert(
+        fc.property(perRequestModelPriceArb, (price) => {
+          const result = convert(price);
+
+          expect(result.modelRatio).toBe(0);
+          expect(result.completionRatio).toBe(0);
+          expect(result.pricingType).toBe('per_request');
+          expect(result.pricePerRequest).toBe(price.pricePerRequest);
+          expect(result.modelId).toBe(price.modelId);
+        }),
+        { numRuns: 200 },
+      );
     });
   });
 });

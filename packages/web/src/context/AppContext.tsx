@@ -11,6 +11,7 @@ import type {
   ChannelPriceComparison,
   UpdateResult,
 } from '@newapi-sync/shared';
+import { getConnectionSettings, saveConnectionSettings as saveConnectionSettingsAPI } from '../api/client';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -59,6 +60,29 @@ function saveConnectionToStorage(settings: ConnectionSettings | null): void {
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(settings));
   } else {
     localStorage.removeItem(LOCAL_STORAGE_KEY);
+  }
+}
+
+async function loadConnectionFromDatabase(): Promise<ConnectionSettings | null> {
+  try {
+    const response = await getConnectionSettings();
+    if (response.success && response.data) {
+      return response.data;
+    }
+    return null;
+  } catch (error) {
+    console.error('Failed to load connection from database:', error);
+    return null;
+  }
+}
+
+async function saveConnectionToDatabase(settings: ConnectionSettings | null): Promise<void> {
+  try {
+    if (settings) {
+      await saveConnectionSettingsAPI(settings);
+    }
+  } catch (error) {
+    console.error('Failed to save connection to database:', error);
   }
 }
 
@@ -128,7 +152,9 @@ const initialState: AppState = {
 function appReducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
     case 'SET_CONNECTION':
+      // Save to both localStorage and database
       saveConnectionToStorage(action.payload);
+      saveConnectionToDatabase(action.payload);
       return {
         ...state,
         connection: {
@@ -272,11 +298,49 @@ const AppContext = createContext<AppContextValue | undefined>(undefined);
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(appReducer, initialState);
+  const [dbLoaded, setDbLoaded] = React.useState(false);
+
+  // Load connection from database on mount (database takes priority over localStorage)
+  useEffect(() => {
+    const loadConnection = async () => {
+      try {
+        const dbSettings = await loadConnectionFromDatabase();
+        if (dbSettings) {
+          // Database has settings, use them and sync to localStorage
+          console.log('Loaded connection from database:', dbSettings);
+          dispatch({ type: 'SET_CONNECTION', payload: dbSettings });
+          saveConnectionToStorage(dbSettings);
+        } else {
+          // No database settings, check localStorage
+          const localSettings = loadConnectionFromStorage();
+          if (localSettings) {
+            // Migrate from localStorage to database
+            console.log('Migrating connection from localStorage to database');
+            dispatch({ type: 'SET_CONNECTION', payload: localSettings });
+            await saveConnectionToDatabase(localSettings);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load connection:', error);
+        // Fallback to localStorage if database fails
+        const localSettings = loadConnectionFromStorage();
+        if (localSettings) {
+          dispatch({ type: 'SET_CONNECTION', payload: localSettings });
+        }
+      } finally {
+        setDbLoaded(true);
+      }
+    };
+
+    loadConnection();
+  }, []);
 
   // Sync connection settings to localStorage whenever they change
   useEffect(() => {
-    saveConnectionToStorage(state.connection.settings);
-  }, [state.connection.settings]);
+    if (dbLoaded) {
+      saveConnectionToStorage(state.connection.settings);
+    }
+  }, [state.connection.settings, dbLoaded]);
 
   return (
     <AppContext.Provider value={{ state, dispatch }}>

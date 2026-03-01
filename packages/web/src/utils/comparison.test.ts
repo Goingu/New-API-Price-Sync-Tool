@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import * as fc from 'fast-check';
 import { compareRatios } from './comparison';
 import type { RatioConfig, RatioResult } from '@newapi-sync/shared';
 
@@ -132,5 +133,52 @@ describe('compareRatios', () => {
     for (const row of rows) {
       expect(row.selected).toBe(false);
     }
+  });
+});
+
+
+/**
+ * Property 4: 按次计费模型差异百分比计算
+ * Validates: Requirements 4.3
+ *
+ * For any per-request model comparison row that has both currentPrice (> 0)
+ * and newPrice, the diff percentage should equal
+ * (newPrice - currentPrice) / currentPrice * 100.
+ */
+describe('Property 4: 按次计费模型差异百分比计算', () => {
+  it('per-request model diff percent equals (newPrice - currentPrice) / currentPrice * 100', () => {
+    fc.assert(
+      fc.property(
+        fc.string({ minLength: 1, maxLength: 30 }),  // modelId
+        fc.double({ min: 0.001, max: 1000, noNaN: true }),  // currentPrice (positive)
+        fc.double({ min: 0.001, max: 1000, noNaN: true }),  // newPrice (positive)
+        (modelId, currentPrice, newPrice) => {
+          const current: RatioConfig = {
+            modelRatio: {},
+            completionRatio: {},
+            modelPrice: { [modelId]: currentPrice },
+          };
+          const upstream: RatioResult[] = [{
+            modelId,
+            modelRatio: 0,
+            completionRatio: 0,
+            pricingType: 'per_request',
+            pricePerRequest: newPrice,
+          }];
+
+          const rows = compareRatios(current, upstream);
+          const row = rows.find(r => r.modelId === modelId);
+
+          expect(row).toBeDefined();
+          expect(row!.pricingType).toBe('per_request');
+          expect(row!.currentPrice).toBe(currentPrice);
+          expect(row!.newPrice).toBe(newPrice);
+
+          const expectedDiff = ((newPrice - currentPrice) / currentPrice) * 100;
+          expect(row!.ratioDiffPercent).toBeCloseTo(expectedDiff, 6);
+        }
+      ),
+      { numRuns: 200 }
+    );
   });
 });

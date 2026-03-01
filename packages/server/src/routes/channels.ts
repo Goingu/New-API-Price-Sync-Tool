@@ -27,7 +27,7 @@ export function createChannelsRouter(): Router {
         return;
       }
 
-      const url = `${targetUrl.replace(/\/+$/, '')}/api/channel/`;
+      const apiBaseUrl = `${targetUrl.replace(/\/+$/, '')}`;
 
       const headers: Record<string, string> = {
         Authorization: `Bearer ${apiKey}`,
@@ -37,20 +37,28 @@ export function createChannelsRouter(): Router {
         headers['New-Api-User'] = userId;
       }
 
-      const response = await axios.get(url, {
-        headers,
-        timeout: 30_000,
-      });
-
-      // Handle different response formats from New API
+      // Fetch all channels with large page_size, fallback to no pagination
       let channels: Channel[] = [];
-      if (Array.isArray(response.data)) {
-        channels = response.data;
-      } else if (response.data?.data) {
-        // New API returns { data: { items: [...] } }
-        channels = Array.isArray(response.data.data)
-          ? response.data.data
-          : response.data.data.items ?? [];
+      try {
+        const url = `${apiBaseUrl}/api/channel/?p=0&page_size=500`;
+        const response = await axios.get(url, { headers, timeout: 30_000 });
+        if (Array.isArray(response.data)) {
+          channels = response.data;
+        } else if (response.data?.data) {
+          channels = Array.isArray(response.data.data)
+            ? response.data.data
+            : response.data.data.items ?? [];
+        }
+      } catch {
+        const url = `${apiBaseUrl}/api/channel/`;
+        const response = await axios.get(url, { headers, timeout: 30_000 });
+        if (Array.isArray(response.data)) {
+          channels = response.data;
+        } else if (response.data?.data) {
+          channels = Array.isArray(response.data.data)
+            ? response.data.data
+            : response.data.data.items ?? [];
+        }
       }
 
       res.json({

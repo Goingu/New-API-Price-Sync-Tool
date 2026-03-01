@@ -36,18 +36,25 @@ export function selectByFilter(
  * Build the update payload for PUT /api/option/.
  *
  * Merges the full current config with overrides from selected rows.
- * Returns two OptionUpdateRequest entries: one for "ModelRatio", one for "CompletionRatio".
+ * Splits rows by pricingType:
+ * - per-token rows → ModelRatio + CompletionRatio payloads
+ * - per-request rows → ModelPrice payload (merged with existing modelPrice config)
  */
 export function buildUpdatePayload(
   currentConfig: RatioConfig,
   selectedRows: ComparisonRow[],
 ): OptionUpdateRequest[] {
-  // Start with a copy of the full current config
+  // Split selected rows by pricing type
+  const tokenRows = selectedRows.filter(r => r.pricingType !== 'per_request');
+  const requestRows = selectedRows.filter(r => r.pricingType === 'per_request');
+
+  const payloads: OptionUpdateRequest[] = [];
+
+  // Per-token payload (always include ModelRatio/CompletionRatio for backward compat)
   const mergedModelRatio: Record<string, number> = { ...currentConfig.modelRatio };
   const mergedCompletionRatio: Record<string, number> = { ...currentConfig.completionRatio };
 
-  // Override with selected rows' new values
-  for (const row of selectedRows) {
+  for (const row of tokenRows) {
     if (row.newRatio !== undefined) {
       mergedModelRatio[row.modelId] = row.newRatio;
     }
@@ -56,8 +63,22 @@ export function buildUpdatePayload(
     }
   }
 
-  return [
+  payloads.push(
     { key: 'ModelRatio', value: JSON.stringify(mergedModelRatio) },
     { key: 'CompletionRatio', value: JSON.stringify(mergedCompletionRatio) },
-  ];
+  );
+
+  // Per-request payload (only when per-request models exist in config or selection)
+  if (requestRows.length > 0 || Object.keys(currentConfig.modelPrice ?? {}).length > 0) {
+    const mergedModelPrice: Record<string, number> = { ...(currentConfig.modelPrice ?? {}) };
+    for (const row of requestRows) {
+      if (row.newPrice !== undefined) {
+        mergedModelPrice[row.modelId] = row.newPrice;
+      }
+    }
+    payloads.push({ key: 'ModelPrice', value: JSON.stringify(mergedModelPrice) });
+  }
+
+  return payloads;
 }
+

@@ -136,7 +136,7 @@ describe('parseLiteLLMEntry', () => {
   it('returns null for unsupported provider', () => {
     const entry: LiteLLMPriceEntry = {
       ...validEntry,
-      litellm_provider: 'cohere',
+      litellm_provider: 'unknown_provider',
     };
     expect(parseLiteLLMEntry('command-r', entry)).toBeNull();
   });
@@ -262,15 +262,138 @@ describe('fetchAllPrices', () => {
     clearCache();
   });
 
-  it('returns results for all 4 supported providers', async () => {
+  it('returns results for all supported providers', async () => {
     const results = await fetchAllPrices();
-    expect(results).toHaveLength(4);
+    // 14 unique provider display names in SUPPORTED_PROVIDERS
+    expect(results).toHaveLength(14);
     const providers = results.map((r) => r.provider).sort();
-    expect(providers).toEqual(['Anthropic', 'DeepSeek', 'Google', 'OpenAI']);
+    expect(providers).toContain('OpenAI');
+    expect(providers).toContain('Anthropic');
+    expect(providers).toContain('DeepSeek');
+    expect(providers).toContain('Google');
   });
 
   it('each result has success=true', async () => {
     const results = await fetchAllPrices();
     expect(results.every((r) => r.success)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Property-based tests — per-request pricing classification
+// ---------------------------------------------------------------------------
+import fc from 'fast-check';
+
+/** Supported provider keys that parseLiteLLMEntry will accept */
+const SUPPORTED_PROVIDER_KEYS = [
+  'openai', 'anthropic', 'deepseek', 'vertex_ai', 'volcengine',
+  'alibaba', 'moonshot', 'zhipuai', 'baidu', 'minimax',
+  'xai', 'mistral', 'cohere', 'perplexity',
+];
+
+const VALID_MODES_PBT = ['chat', 'completion'];
+
+/** Arbitrary for a positive number (used for cost fields) */
+const positiveCost = fc.double({ min: 1e-12, max: 1000, noNaN: true, noDefaultInfinity: true })
+  .filter((n) => n > 0);
+
+/** Arbitrary for an invalid per-token cost: undefined, zero, or negative */
+const invalidCost = fc.oneof(
+  fc.constant(undefined as number | undefined),
+  fc.constant(0),
+  fc.double({ min: -1000, max: 0, noNaN: true, noDefaultInfinity: true }),
+);
+
+/** Arbitrary for a model key (simple alphanumeric with dashes/slashes) */
+const modelKey = fc.stringOf(
+  fc.constantFrom(...'abcdefghijklmnopqrstuvwxyz0123456789-/.'.split('')),
+  { minLength: 1, maxLength: 40 },
+);
+
+describe('parseLiteLLMEntry — property-based tests', () => {
+  /**
+   * Property 1: 按次计费模型正确分类
+   *
+   * For any valid LiteLLM entry with valid input_cost_per_request (positive)
+   * and NO valid input_cost_per_token (positive), parseLiteLLMEntry should
+   * return a ModelPrice with pricingType = 'per_request' and pricePerRequest > 0.
+   *
+   * **Validates: Requirements 1.1, 1.2, 1.4**
+   */
+  it('Property 1: per-request entries are classified as per_request with positive pricePerRequest', () => {
+    fc.assert(
+      fc.property(
+        modelKey,
+        fc.constantFrom(...SUPPORTED_PROVIDER_KEYS),
+        fc.constantFrom(...VALID_MODES_PBT),
+        positiveCost,
+        fc.oneof(positiveCost, fc.constant(undefined as number | undefined)),
+        invalidCost,
+        invalidCost,
+        (key, provider, mode, inputCostPerReq, outputCostPerReq, inputCostPerToken, outputCostPerToken) => {
+          const entry: LiteLLMPriceEntry = {
+            litellm_provider: provider,
+            mode,
+            input_cost_per_request: inputCostPerReq,
+            output_cost_per_request: outputCostPerReq,
+            input_cost_per_token: inputCostPerToken,
+            output_cost_per_token: outputCostPerToken,
+          };
+
+          const result = parseLiteLLMEntry(key, entry);
+
+          expect(result).not.toBeNull();
+          expect(result!.pricingType).toBe('per_request');
+          expect(result!.pricePerRequest).toBeGreaterThan(0);
+          expect(result!.inputPricePerMillion).toBe(0);
+          expect(result!.outputPricePerMillion).toBe(0);
+        },
+      ),
+      { numRuns: 200 },
+    );
+  });
+
+  /**
+   * Property 2: 按 token 计费优先级
+   *
+   * For any valid LiteLLM entry with BOTH valid input_cost_per_token (positive)
+   * and input_cost_per_request (positive), parseLiteLLMEntry should return a
+   * ModelPrice with pricingType = 'per_token' and inputPricePerMillion based
+   * on input_cost_per_token.
+   *
+   * **Validates: Requirements 1.3**
+   */
+  it('Property 2: per-token pricing takes priority when both per-token and per-request fields are present', () => {
+    fc.assert(
+      fc.property(
+        modelKey,
+        fc.constantFrom(...SUPPORTED_PROVIDER_KEYS),
+        fc.constantFrom(...VALID_MODES_PBT),
+        positiveCost,
+        positiveCost,
+        positiveCost,
+        positiveCost,
+        (key, provider, mode, inputCostPerToken, outputCostPerToken, inputCostPerReq, outputCostPerReq) => {
+          const entry: LiteLLMPriceEntry = {
+            litellm_provider: provider,
+            mode,
+            input_cost_per_token: inputCostPerToken,
+            output_cost_per_token: outputCostPerToken,
+            input_cost_per_request: inputCostPerReq,
+            output_cost_per_request: outputCostPerReq,
+          };
+
+          const result = parseLiteLLMEntry(key, entry);
+
+          expect(result).not.toBeNull();
+          expect(result!.pricingType).toBe('per_token');
+          expect(result!.inputPricePerMillion).toBeCloseTo(
+            inputCostPerToken * 1_000_000,
+            4,
+          );
+        },
+      ),
+      { numRuns: 200 },
+    );
   });
 });

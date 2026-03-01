@@ -1,21 +1,34 @@
+import { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
-import { ConfigProvider, App as AntApp } from 'antd';
+import { ConfigProvider, App as AntApp, Spin } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { AppProvider, useAppContext } from './context/AppContext';
-import AppLayout from './components/AppLayout';
 import ConnectionConfig from './components/ConnectionConfig';
-import CurrentRatios from './pages/CurrentRatios';
-import FetchPrices from './pages/FetchPrices';
-import ComparisonUpdate from './pages/ComparisonUpdate';
-import ChannelComparison from './pages/ChannelComparison';
-import ChannelSources from './pages/ChannelSources';
-import ChannelSourceRatios from './pages/ChannelSourceRatios';
-import PriceHistory from './pages/PriceHistory';
-import UpdateLogs from './pages/UpdateLogs';
-import Settings from './pages/Settings';
-import CheckinManagement from './pages/CheckinManagement';
-import LivenessManagement from './pages/LivenessManagement';
-import Dashboard from './pages/Dashboard';
+
+const AppLayout = lazy(() => import('./components/AppLayout'));
+const FetchPrices = lazy(() => import('./pages/FetchPrices'));
+const ComparisonUpdate = lazy(() => import('./pages/ComparisonUpdate'));
+const ChannelComparison = lazy(() => import('./pages/ChannelComparison'));
+const ChannelSources = lazy(() => import('./pages/ChannelSources'));
+const ChannelSourceRatios = lazy(() => import('./pages/ChannelSourceRatios'));
+const InstanceRatioViewer = lazy(() => import('./pages/InstanceRatioViewer'));
+const PriceHistory = lazy(() => import('./pages/PriceHistory'));
+const UpdateLogs = lazy(() => import('./pages/UpdateLogs'));
+const Settings = lazy(() => import('./pages/Settings'));
+const CheckinManagement = lazy(() => import('./pages/CheckinManagement'));
+const LivenessManagement = lazy(() => import('./pages/LivenessManagement'));
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const ChannelPriority = lazy(() => import('./pages/ChannelPriority'));
+const ChannelSplit = lazy(() => import('./pages/ChannelSplit'));
+const ModelGroupManagement = lazy(() => import('./pages/ModelGroupManagement'));
+
+function RouteLoading() {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '40vh' }}>
+      <Spin size="large" />
+    </div>
+  );
+}
 
 /**
  * Route guard — redirects to /connect when no connection settings exist.
@@ -31,7 +44,8 @@ function RequireConnection() {
 
 function AppRoutes() {
   return (
-    <Routes>
+    <Suspense fallback={<RouteLoading />}>
+      <Routes>
       {/* Standalone connect page — no layout wrapper */}
       <Route path="/connect" element={
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', padding: 24 }}>
@@ -46,23 +60,27 @@ function AppRoutes() {
         <Route element={<AppLayout />}>
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<Dashboard />} />
-          <Route path="current-ratios" element={<CurrentRatios />} />
           <Route path="fetch-prices" element={<FetchPrices />} />
           <Route path="comparison" element={<ComparisonUpdate />} />
           <Route path="channel-comparison" element={<ChannelComparison />} />
           <Route path="channel-sources" element={<ChannelSources />} />
           <Route path="channel-source-ratios" element={<ChannelSourceRatios />} />
+          <Route path="instance-ratio-viewer" element={<InstanceRatioViewer />} />
           <Route path="price-history" element={<PriceHistory />} />
           <Route path="update-logs" element={<UpdateLogs />} />
           <Route path="checkin" element={<CheckinManagement />} />
           <Route path="liveness" element={<LivenessManagement />} />
+          <Route path="channel-priority" element={<ChannelPriority />} />
+          <Route path="channel-split" element={<ChannelSplit />} />
+          <Route path="model-groups" element={<ModelGroupManagement />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Route>
 
       {/* Fallback — redirect unknown paths to root */}
       <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+      </Routes>
+    </Suspense>
   );
 }
 

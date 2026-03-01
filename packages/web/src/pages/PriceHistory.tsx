@@ -7,6 +7,7 @@ import {
   Space,
   Spin,
   Table,
+  Tag,
   Typography,
 } from 'antd';
 import { ReloadOutlined, HistoryOutlined } from '@ant-design/icons';
@@ -170,10 +171,23 @@ export default function PriceHistory() {
       width: 150,
     },
     {
+      title: '计费类型',
+      dataIndex: 'pricingType',
+      key: 'pricingType',
+      width: 90,
+      render: (type?: string) =>
+        type === 'per_request'
+          ? <Tag color="orange">按次</Tag>
+          : <Tag color="blue">按 Token</Tag>,
+    },
+    {
       title: '输入价格 ($/1M tokens)',
       dataIndex: 'inputPricePerMillion',
       key: 'inputPrice',
-      render: (val: number) => `$${val.toFixed(4)}`,
+      render: (val: number, record) =>
+        record.pricingType === 'per_request'
+          ? <span style={{ color: '#999' }}>不适用</span>
+          : `$${val.toFixed(4)}`,
       sorter: (a, b) => a.inputPricePerMillion - b.inputPricePerMillion,
       width: 200,
     },
@@ -181,9 +195,22 @@ export default function PriceHistory() {
       title: '输出价格 ($/1M tokens)',
       dataIndex: 'outputPricePerMillion',
       key: 'outputPrice',
-      render: (val: number) => `$${val.toFixed(4)}`,
+      render: (val: number, record) =>
+        record.pricingType === 'per_request'
+          ? <span style={{ color: '#999' }}>不适用</span>
+          : `$${val.toFixed(4)}`,
       sorter: (a, b) => a.outputPricePerMillion - b.outputPricePerMillion,
       width: 200,
+    },
+    {
+      title: '模型价格 (USD/次)',
+      dataIndex: 'pricePerRequest',
+      key: 'pricePerRequest',
+      render: (val: number | undefined, record) =>
+        record.pricingType === 'per_request' && val !== undefined
+          ? `$${val.toFixed(4)}`
+          : <span style={{ color: '#999' }}>—</span>,
+      width: 160,
     },
   ];
 

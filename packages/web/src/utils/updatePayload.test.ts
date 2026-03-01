@@ -130,3 +130,166 @@ describe('buildUpdatePayload', () => {
     expect(currentConfig).toEqual(configCopy);
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// Property-based tests — mixed pricing type payload separation
+// ---------------------------------------------------------------------------
+import * as fc from 'fast-check';
+
+/** Arbitrary for a per-token ComparisonRow */
+const perTokenRowArb: fc.Arbitrary<ComparisonRow> = fc.record({
+  modelId: fc.string({ minLength: 1, maxLength: 20 }).map(s => `token-${s}`),
+  provider: fc.constant('test'),
+  status: fc.constant('increased' as const),
+  selected: fc.constant(true),
+  pricingType: fc.constant('per_token' as const),
+  newRatio: fc.double({ min: 0.1, max: 100, noNaN: true }),
+  newCompletionRatio: fc.double({ min: 0.1, max: 10, noNaN: true }),
+});
+
+/** Arbitrary for a per-request ComparisonRow */
+const perRequestRowArb: fc.Arbitrary<ComparisonRow> = fc.record({
+  modelId: fc.string({ minLength: 1, maxLength: 20 }).map(s => `request-${s}`),
+  provider: fc.constant('test'),
+  status: fc.constant('increased' as const),
+  selected: fc.constant(true),
+  pricingType: fc.constant('per_request' as const),
+  newPrice: fc.double({ min: 0.001, max: 100, noNaN: true }),
+});
+
+/**
+ * Property 5: 混合计费类型载荷分离
+ * Validates: Requirements 5.1, 5.2, 5.3
+ *
+ * For any set of selected rows containing at least one per-token and one
+ * per-request model, buildUpdatePayload should produce payloads where:
+ * - ModelRatio/CompletionRatio keys exist (for per-token models)
+ * - ModelPrice key exists (for per-request models)
+ * - Per-request model IDs do NOT appear in ModelRatio payload values
+ * - Per-token model IDs do NOT appear in ModelPrice payload values
+ */
+describe('Property 5: 混合计费类型载荷分离', () => {
+  it('separates per-token and per-request models into distinct payload keys', () => {
+    fc.assert(
+      fc.property(
+        fc.array(perTokenRowArb, { minLength: 1, maxLength: 5 }),
+        fc.array(perRequestRowArb, { minLength: 1, maxLength: 5 }),
+        (tokenRows, requestRows) => {
+          const currentConfig: RatioConfig = {
+            modelRatio: {},
+            completionRatio: {},
+          };
+
+          const selectedRows = [...tokenRows, ...requestRows];
+          const payloads = buildUpdatePayload(currentConfig, selectedRows);
+
+          // Find each payload by key
+          const modelRatioPayload = payloads.find(p => p.key === 'ModelRatio');
+          const completionRatioPayload = payloads.find(p => p.key === 'CompletionRatio');
+          const modelPricePayload = payloads.find(p => p.key === 'ModelPrice');
+
+          // ModelRatio and CompletionRatio must exist
+          expect(modelRatioPayload).toBeDefined();
+          expect(completionRatioPayload).toBeDefined();
+          // ModelPrice must exist (we have per-request rows)
+          expect(modelPricePayload).toBeDefined();
+
+          const modelRatioData = JSON.parse(modelRatioPayload!.value) as Record<string, number>;
+          const modelPriceData = JSON.parse(modelPricePayload!.value) as Record<string, number>;
+
+          const tokenIds = new Set(tokenRows.map(r => r.modelId));
+          const requestIds = new Set(requestRows.map(r => r.modelId));
+
+          // Per-request model IDs must NOT appear in ModelRatio
+          for (const id of requestIds) {
+            expect(modelRatioData).not.toHaveProperty(id);
+          }
+
+          // Per-token model IDs must NOT appear in ModelPrice
+          for (const id of tokenIds) {
+            expect(modelPriceData).not.toHaveProperty(id);
+          }
+        }
+      ),
+      { numRuns: 200 }
+    );
+  });
+});
+
+/**
+ * Property 6: 未选中按次计费模型价格保留
+ * Validates: Requirements 5.4
+ *
+ * For any current modelPrice config and a subset of selected per-request
+ * models, the generated ModelPrice payload should:
+ * - Preserve unselected models' original prices
+ * - Update selected models to their new prices
+ * - Include all original models in the payload
+ */
+describe('Property 6: 未选中按次计费模型价格保留', () => {
+  it('preserves unselected model prices and updates selected ones', () => {
+    fc.assert(
+      fc.property(
+        // Generate a non-empty modelPrice config with unique model IDs
+        fc.array(
+          fc.tuple(
+            fc.string({ minLength: 1, maxLength: 15 }).map(s => `existing-${s}`),
+            fc.double({ min: 0.001, max: 100, noNaN: true }),
+          ),
+          { minLength: 2, maxLength: 8 },
+        ),
+        // New price for selected models
+        fc.double({ min: 0.001, max: 100, noNaN: true }),
+        (modelEntries, newPriceValue) => {
+          // Deduplicate model IDs
+          const modelPriceMap: Record<string, number> = {};
+          for (const [id, price] of modelEntries) {
+            modelPriceMap[id] = price;
+          }
+          const allIds = Object.keys(modelPriceMap);
+          if (allIds.length < 2) return; // Need at least 2 models to split
+
+          // Select only the first model for update, rest remain unselected
+          const selectedId = allIds[0];
+          const unselectedIds = allIds.slice(1);
+
+          const currentConfig: RatioConfig = {
+            modelRatio: {},
+            completionRatio: {},
+            modelPrice: modelPriceMap,
+          };
+
+          const selectedRows: ComparisonRow[] = [{
+            modelId: selectedId,
+            provider: 'test',
+            status: 'increased',
+            selected: true,
+            pricingType: 'per_request',
+            newPrice: newPriceValue,
+          }];
+
+          const payloads = buildUpdatePayload(currentConfig, selectedRows);
+          const modelPricePayload = payloads.find(p => p.key === 'ModelPrice');
+
+          expect(modelPricePayload).toBeDefined();
+          const result = JSON.parse(modelPricePayload!.value) as Record<string, number>;
+
+          // All original models must be present
+          for (const id of allIds) {
+            expect(result).toHaveProperty(id);
+          }
+
+          // Selected model should have the new price
+          expect(result[selectedId]).toBe(newPriceValue);
+
+          // Unselected models should keep their original prices
+          for (const id of unselectedIds) {
+            expect(result[id]).toBe(modelPriceMap[id]);
+          }
+        }
+      ),
+      { numRuns: 200 }
+    );
+  });
+});

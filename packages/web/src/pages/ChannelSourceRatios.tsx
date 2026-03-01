@@ -23,6 +23,9 @@ import {
   SyncOutlined,
   CheckOutlined,
   InfoCircleOutlined,
+  ClockCircleOutlined,
+  DatabaseOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { ChannelSource, RatioConfig } from '@newapi-sync/shared';
@@ -31,6 +34,9 @@ import {
   getChannelSources,
   compareChannelSourceRatios,
   proxyForward,
+  getCachedRatios,
+  saveCachedRatio,
+  getChannelSourcePriceRates,
 } from '../api/client';
 
 const { Title, Text } = Typography;
@@ -41,11 +47,13 @@ interface SourceRatioData {
   success: boolean;
   ratioConfig?: RatioConfig;
   error?: string;
+  fetchedAt?: string;
+  isFromCache?: boolean;
 }
 
 interface ComparisonRow {
   modelId: string;
-  sources: Record<number, { modelRatio: number; completionRatio: number }>;
+  sources: Record<number, { modelRatio: number; completionRatio: number; modelPrice?: number }>;
   lowestSourceId?: number;
   lowestRatio?: number;
 }
@@ -67,6 +75,15 @@ export default function ChannelSourceRatios() {
   const [showUnsetOnly, setShowUnsetOnly] = useState(false);
   const [ownedModels, setOwnedModels] = useState<Set<string>>(new Set());
   const [loadingOwned, setLoadingOwned] = useState(false);
+  const [upstreamPrices, setUpstreamPrices] = useState<Map<string, { inputPrice: number; outputPrice: number }>>(new Map());
+  const [showRealCost, setShowRealCost] = useState(false);
+  const [sourcePriceRates, setSourcePriceRates] = useState<Map<number, number>>(new Map());
+  const [selectedProviders, setSelectedProviders] = useState<string[]>([]);
+
+  // Cache-related state
+  const [cacheLoaded, setCacheLoaded] = useState(false);
+  const [cacheLoading, setCacheLoading] = useState(false);
+  const [fetchedTimes, setFetchedTimes] = useState<Map<number, string>>(new Map());
 
   // Fetch channel sources
   useEffect(() => {
@@ -81,6 +98,141 @@ export default function ChannelSourceRatios() {
       }
     };
     fetchSources();
+  }, []);
+
+  // Load upstream prices from state
+  useEffect(() => {
+    if (state.upstreamPrices.results.length > 0) {
+      const priceMap = new Map<string, { inputPrice: number; outputPrice: number }>();
+
+      state.upstreamPrices.results.forEach(result => {
+        if (result.success) {
+          result.models.forEach(model => {
+            if (model.pricingType === 'per_token') {
+              const price = {
+                inputPrice: model.inputPricePerMillion,
+                outputPrice: model.outputPricePerMillion,
+              };
+
+              // Store with original model ID
+              priceMap.set(model.modelId, price);
+
+              // Also store with normalized key (remove provider prefix for fuzzy matching)
+              // e.g., "minimax/MiniMax-M2.5" -> "MiniMax-M2.5"
+              const normalized = model.modelId.includes('/')
+                ? model.modelId.split('/').slice(1).join('/')
+                : model.modelId;
+              if (normalized !== model.modelId) {
+                priceMap.set(normalized, price);
+              }
+
+              // Also store lowercase version for case-insensitive matching
+              const lowerKey = model.modelId.toLowerCase();
+              if (lowerKey !== model.modelId) {
+                priceMap.set(lowerKey, price);
+              }
+            }
+          });
+        }
+      });
+
+      setUpstreamPrices(priceMap);
+      console.log('Loaded upstream prices for', priceMap.size, 'models (including normalized keys)');
+    }
+  }, [state.upstreamPrices.results]);
+
+  // Load channel source price rates (exchange rates)
+  useEffect(() => {
+    const loadSourcePriceRates = async () => {
+      try {
+        const resp = await getChannelSourcePriceRates();
+        if (resp.success) {
+          const rateMap = new Map<number, number>();
+          console.log('=== Channel Source Price Rates Response ===');
+          console.log('Full response:', resp);
+          resp.data.forEach(rate => {
+            const unitCost = 1 / rate.priceRate;
+            console.log(`Source ID ${rate.sourceId} (${rate.sourceName}):`);
+            console.log(`  - priceRate (费率): ${rate.priceRate}`);
+            console.log(`  - unitCost (单位成本): ${unitCost.toFixed(4)} 元/美元`);
+            rateMap.set(rate.sourceId, rate.priceRate);
+          });
+          setSourcePriceRates(rateMap);
+          console.log('Loaded source price rates for', rateMap.size, 'sources');
+          console.log('Rate map entries:', Array.from(rateMap.entries()));
+        }
+      } catch (err) {
+        console.error('Failed to load channel source price rates:', err);
+      }
+    };
+    loadSourcePriceRates();
+  }, []);
+
+  // Load cached ratios on mount
+  useEffect(() => {
+    loadCachedRatios();
+  }, []);
+
+  // Load cached ratios from database
+  const loadCachedRatios = useCallback(async () => {
+    setCacheLoading(true);
+    try {
+      const resp = await getCachedRatios();
+      if (resp.success && resp.cached.length > 0) {
+        console.log('Loaded cached ratios:', resp.cached);
+
+        // Convert cached entries to SourceRatioData format
+        const cachedData: SourceRatioData[] = resp.cached.map((entry) => ({
+          sourceId: entry.sourceId,
+          sourceName: entry.sourceName,
+          success: true,
+          ratioConfig: entry.ratioConfig,
+          fetchedAt: entry.fetchedAt,
+          isFromCache: true,
+        }));
+
+        setRatioData(cachedData);
+
+        // Update fetched times
+        const times = new Map<number, string>();
+        resp.cached.forEach((entry) => {
+          times.set(entry.sourceId, entry.fetchedAt);
+        });
+        setFetchedTimes(times);
+
+        // Auto-select cached sources
+        const cachedSourceIds = resp.cached.map((e) => e.sourceId);
+        setSelectedSourceIds(cachedSourceIds);
+
+        setCacheLoaded(true);
+        message.success(`已加载 ${resp.cached.length} 个渠道源的缓存数据`);
+      } else {
+        setCacheLoaded(true);
+      }
+    } catch (err) {
+      console.error('Failed to load cached ratios:', err);
+      setCacheLoaded(true);
+      // Don't show error message - cache loading failure shouldn't block user
+    } finally {
+      setCacheLoading(false);
+    }
+  }, []);
+
+  // Save ratios to cache after fetching
+  const saveCachedRatios = useCallback(async (data: SourceRatioData[]) => {
+    try {
+      const savePromises = data
+        .filter((d) => d.success && d.ratioConfig)
+        .map((d) =>
+          saveCachedRatio(d.sourceId, d.sourceName, d.ratioConfig!)
+        );
+
+      await Promise.all(savePromises);
+      console.log('Saved ratios to cache');
+    } catch (err) {
+      console.error('Failed to save cached ratios:', err);
+      // Don't show error message - cache save failure shouldn't block user
+    }
   }, []);
 
   // Fetch and compare ratios
@@ -98,7 +250,25 @@ export default function ChannelSourceRatios() {
 
       if (resp.success) {
         console.log('Ratio data:', resp.results);
-        setRatioData(resp.results);
+
+        // Mark as live data and add current timestamp
+        const now = new Date().toISOString();
+        const liveData: SourceRatioData[] = resp.results.map((r) => ({
+          ...r,
+          fetchedAt: now,
+          isFromCache: false,
+        }));
+
+        setRatioData(liveData);
+
+        // Update fetched times
+        const times = new Map<number, string>();
+        liveData.forEach((d) => {
+          if (d.success) {
+            times.set(d.sourceId, now);
+          }
+        });
+        setFetchedTimes(times);
 
         const failedCount = resp.results.filter((r) => !r.success).length;
         const successCount = resp.results.filter((r) => r.success).length;
@@ -110,6 +280,9 @@ export default function ChannelSourceRatios() {
         } else {
           message.success('获取成功');
         }
+
+        // Save successful results to cache
+        saveCachedRatios(liveData);
 
         // Auto-fetch owned models when showing unset only
         if (showUnsetOnly && ownedModels.size === 0) {
@@ -125,7 +298,7 @@ export default function ChannelSourceRatios() {
     } finally {
       setLoading(false);
     }
-  }, [selectedSourceIds, showUnsetOnly, ownedModels.size]);
+  }, [selectedSourceIds, showUnsetOnly, ownedModels.size, saveCachedRatios]);
 
   // Fetch owned models from user's instance
   const fetchOwnedModels = useCallback(async () => {
@@ -153,6 +326,29 @@ export default function ChannelSourceRatios() {
     }
   }, [settings]);
 
+  // Format relative time (e.g., "5 分钟前", "2 小时前")
+  const formatRelativeTime = (isoString: string): string => {
+    const now = Date.now();
+    const then = new Date(isoString).getTime();
+    const diffMs = now - then;
+    const diffMinutes = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMinutes < 1) return '刚刚';
+    if (diffMinutes < 60) return `${diffMinutes} 分钟前`;
+    if (diffHours < 24) return `${diffHours} 小时前`;
+    return `${diffDays} 天前`;
+  };
+
+  // Check if data is expired (> 12 hours old)
+  const isDataExpired = (isoString: string): boolean => {
+    const now = Date.now();
+    const then = new Date(isoString).getTime();
+    const diffHours = (now - then) / 3600000;
+    return diffHours > 12;
+  };
+
   // Build comparison rows
   const comparisonRows = useMemo(() => {
     console.log('Building comparison rows from ratioData:', ratioData);
@@ -167,9 +363,26 @@ export default function ChannelSourceRatios() {
         continue;
       }
 
-      console.log(`${data.sourceName} has ${Object.keys(data.ratioConfig.modelRatio).length} models`);
+      const ratioConfig = data.ratioConfig;
 
-      for (const [modelId, modelRatio] of Object.entries(data.ratioConfig.modelRatio)) {
+      // Collect all unique model IDs from both modelRatio and modelPrice
+      const allModelIds = new Set([
+        ...Object.keys(ratioConfig.modelRatio || {}),
+        ...Object.keys(ratioConfig.modelPrice || {}),
+      ]);
+
+      console.log(`${data.sourceName} has ${allModelIds.size} models (${Object.keys(ratioConfig.modelRatio || {}).length} token-based, ${Object.keys(ratioConfig.modelPrice || {}).length} per-request)`);
+      
+      // Log sample modelPrice data
+      if (ratioConfig.modelPrice && Object.keys(ratioConfig.modelPrice).length > 0) {
+        const sampleKeys = Object.keys(ratioConfig.modelPrice).slice(0, 5);
+        console.log(`${data.sourceName} modelPrice sample:`, sampleKeys.map(k => ({
+          model: k,
+          price: ratioConfig.modelPrice![k]
+        })));
+      }
+
+      for (const modelId of allModelIds) {
         if (!modelMap.has(modelId)) {
           modelMap.set(modelId, {
             modelId,
@@ -178,40 +391,107 @@ export default function ChannelSourceRatios() {
         }
 
         const row = modelMap.get(modelId)!;
+        
+        // Check if this is a per-request pricing model
+        const modelPrice = ratioConfig.modelPrice?.[modelId];
+        const modelRatio = ratioConfig.modelRatio?.[modelId] ?? 0;
+        const completionRatio = ratioConfig.completionRatio?.[modelId] ?? 1;
+        
         row.sources[data.sourceId] = {
           modelRatio,
-          completionRatio: data.ratioConfig.completionRatio[modelId] ?? 1,
+          completionRatio,
+          modelPrice,
         };
       }
     }
 
     console.log(`Total unique models: ${modelMap.size}`);
 
-    // Find lowest ratio for each model
+    // Find lowest ratio for each model (considering exchange rates if showRealCost is enabled)
     const rows = Array.from(modelMap.values());
     for (const row of rows) {
-      let lowestRatio = Infinity;
+      let lowestCost = Infinity;
       let lowestSourceId: number | undefined;
 
       for (const [sourceId, ratios] of Object.entries(row.sources)) {
-        if (ratios.modelRatio < lowestRatio) {
-          lowestRatio = ratios.modelRatio;
+        // Skip per-request models (ratio = 0) when finding lowest
+        if (ratios.modelRatio <= 0) continue;
+
+        let cost: number;
+        if (showRealCost) {
+          // Calculate real cost in CNY
+          const priceRate = sourcePriceRates.get(parseInt(sourceId, 10));
+          console.log(`[Lowest calc] Source ${sourceId}, priceRate: ${priceRate}, modelRatio: ${ratios.modelRatio}`);
+          
+          if (!priceRate || priceRate <= 0) {
+            console.log(`[Lowest calc] Skipping source ${sourceId} - no price rate`);
+            continue;
+          }
+          
+          const unitCost = 1 / priceRate;
+          const inputPrice = ratios.modelRatio * 0.75;
+          cost = inputPrice * unitCost; // Real cost in CNY
+          console.log(`[Lowest calc] Source ${sourceId}, unitCost: ${unitCost}, inputPrice: $${inputPrice}, realCost: ¥${cost}`);
+        } else {
+          // Use USD price (model ratio)
+          cost = ratios.modelRatio;
+        }
+
+        if (cost < lowestCost) {
+          lowestCost = cost;
           lowestSourceId = parseInt(sourceId, 10);
+          console.log(`[Lowest calc] New lowest: source ${sourceId}, cost: ${cost}`);
         }
       }
 
       row.lowestSourceId = lowestSourceId;
-      row.lowestRatio = lowestRatio;
+      row.lowestRatio = lowestCost === Infinity ? undefined : lowestCost;
     }
 
     console.log('Final comparison rows:', rows.slice(0, 3));
 
     return rows;
-  }, [ratioData]);
+  }, [ratioData, showRealCost, sourcePriceRates]);
+
+  // Extract provider from model ID
+  const extractProvider = (modelId: string): string => {
+    const lower = modelId.toLowerCase();
+    
+    // Check for common providers
+    if (lower.includes('gpt') || lower.includes('openai') || lower.includes('o1') || lower.includes('chatgpt')) return 'OpenAI';
+    if (lower.includes('claude')) return 'Anthropic';
+    if (lower.includes('gemini') || lower.includes('palm')) return 'Google';
+    if (lower.includes('llama')) return 'Meta';
+    if (lower.includes('mistral') || lower.includes('mixtral')) return 'Mistral';
+    if (lower.includes('deepseek')) return 'DeepSeek';
+    if (lower.includes('qwen')) return 'Qwen';
+    if (lower.includes('glm') || lower.includes('chatglm')) return 'Zhipu';
+    if (lower.includes('moonshot') || lower.includes('kimi')) return 'Moonshot';
+    if (lower.includes('doubao')) return 'Doubao';
+    if (lower.includes('yi-')) return 'Yi';
+    if (lower.includes('baichuan')) return 'Baichuan';
+    if (lower.includes('spark')) return 'iFlytek';
+    if (lower.includes('ernie')) return 'Baidu';
+    if (lower.includes('hunyuan')) return 'Tencent';
+    if (lower.includes('360')) return '360AI';
+    if (lower.includes('grok')) return 'xAI';
+    if (lower.includes('command')) return 'Cohere';
+    
+    return '其他';
+  };
+
+  // Get all unique providers from comparison rows
+  const allProviders = useMemo(() => {
+    const providers = new Set<string>();
+    comparisonRows.forEach(row => {
+      providers.add(extractProvider(row.modelId));
+    });
+    return Array.from(providers).sort();
+  }, [comparisonRows]);
 
   // Filter by search
   const filteredRows = useMemo(() => {
-    if (!search.trim() && !showUnsetOnly) return comparisonRows;
+    if (!search.trim() && !showUnsetOnly && selectedProviders.length === 0) return comparisonRows;
 
     let filtered = comparisonRows;
 
@@ -219,6 +499,11 @@ export default function ChannelSourceRatios() {
     if (search.trim()) {
       const q = search.toLowerCase();
       filtered = filtered.filter((r) => r.modelId.toLowerCase().includes(q));
+    }
+
+    // Filter by provider
+    if (selectedProviders.length > 0) {
+      filtered = filtered.filter((r) => selectedProviders.includes(extractProvider(r.modelId)));
     }
 
     // Filter by unset ratios (owned but not configured)
@@ -230,7 +515,7 @@ export default function ChannelSourceRatios() {
     }
 
     return filtered;
-  }, [comparisonRows, search, showUnsetOnly, ownedModels, state.currentRatios.data]);
+  }, [comparisonRows, search, showUnsetOnly, ownedModels, state.currentRatios.data, selectedProviders]);
 
   // Apply ratios to own instance
   const handleApplyRatios = useCallback(async () => {
@@ -337,39 +622,235 @@ export default function ChannelSourceRatios() {
       width: 250,
       sorter: (a, b) => a.modelId.localeCompare(b.modelId),
     },
+    {
+      title: '官方价格',
+      key: 'officialPrice',
+      width: 180,
+      render: (_: unknown, row: ComparisonRow) => {
+        // Try multiple matching strategies
+        let price = upstreamPrices.get(row.modelId);
+
+        // If not found, try case-insensitive match
+        if (!price) {
+          price = upstreamPrices.get(row.modelId.toLowerCase());
+        }
+
+        // If still not found, try matching with provider prefix removed
+        // e.g., "minimax/MiniMax-M2.5" should match "MiniMax-M2.5"
+        if (!price) {
+          for (const [key, value] of upstreamPrices.entries()) {
+            if (key.includes('/')) {
+              const withoutPrefix = key.split('/').slice(1).join('/');
+              if (withoutPrefix === row.modelId || withoutPrefix.toLowerCase() === row.modelId.toLowerCase()) {
+                price = value;
+                break;
+              }
+            }
+          }
+        }
+
+        if (!price) {
+          return <Text type="secondary">未获取</Text>;
+        }
+
+        return (
+          <Space direction="vertical" size={0}>
+            <Text style={{ fontSize: 12, color: '#1890ff' }}>
+              输入: ${price.inputPrice.toFixed(4)}/M
+            </Text>
+            <Text style={{ fontSize: 12, color: '#1890ff' }}>
+              输出: ${price.outputPrice.toFixed(4)}/M
+            </Text>
+          </Space>
+        );
+      },
+    },
     ...ratioData
       .filter((d) => d.success)
-      .map((data) => ({
-        title: data.sourceName,
-        key: `source-${data.sourceId}`,
-        width: 180,
-        render: (_: unknown, row: ComparisonRow) => {
-          const ratios = row.sources[data.sourceId];
-          if (!ratios) return <Text type="secondary">-</Text>;
+      .map((data) => {
+        const fetchedAt = data.fetchedAt || fetchedTimes.get(data.sourceId);
+        const isFromCache = data.isFromCache ?? false;
+        const isExpired = fetchedAt ? isDataExpired(fetchedAt) : false;
+        const priceRate = sourcePriceRates.get(data.sourceId);
+        
+        console.log(`Column for source ${data.sourceName} (ID: ${data.sourceId}): priceRate = ${priceRate}`);
 
-          const isLowest = row.lowestSourceId === data.sourceId;
-          const inputPrice = ratios.modelRatio * 0.75;
-          const outputPrice = inputPrice * ratios.completionRatio;
-
-          return (
+        return {
+          title: (
             <Space direction="vertical" size={0}>
-              <Text strong={isLowest} style={{ color: isLowest ? '#52c41a' : undefined }}>
-                倍率: {ratios.modelRatio.toFixed(4)}
-                {isLowest && <Tag color="success" style={{ marginLeft: 4 }}>最低</Tag>}
-              </Text>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                输入: ${inputPrice.toFixed(4)}/M
-              </Text>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                输出: ${outputPrice.toFixed(4)}/M
-              </Text>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                补全倍率: {ratios.completionRatio.toFixed(2)}
-              </Text>
+              <Space size={4}>
+                <Text>{data.sourceName}</Text>
+                {isFromCache ? (
+                  <Tooltip title="数据来自缓存">
+                    <Tag icon={<DatabaseOutlined />} color="blue" style={{ margin: 0 }}>
+                      缓存
+                    </Tag>
+                  </Tooltip>
+                ) : (
+                  <Tooltip title="实时获取的数据">
+                    <Tag icon={<ThunderboltOutlined />} color="green" style={{ margin: 0 }}>
+                      实时
+                    </Tag>
+                  </Tooltip>
+                )}
+              </Space>
+              {priceRate && (
+                <Tooltip title={`单位成本: 1美元 = ${(1 / priceRate).toFixed(4)}元人民币`}>
+                  <Tag color="orange" style={{ margin: 0 }}>
+                    单位成本 {(1 / priceRate).toFixed(4)}
+                  </Tag>
+                </Tooltip>
+              )}
+              {fetchedAt && (
+                <Text
+                  type="secondary"
+                  style={{
+                    fontSize: 11,
+                    color: isExpired ? '#ff4d4f' : undefined,
+                  }}
+                >
+                  <ClockCircleOutlined style={{ marginRight: 2 }} />
+                  {formatRelativeTime(fetchedAt)}
+                  {isExpired && ' (已过期)'}
+                </Text>
+              )}
             </Space>
-          );
-        },
-      })),
+          ),
+          key: `source-${data.sourceId}`,
+          width: showRealCost ? 250 : 200,
+          render: (_: unknown, row: ComparisonRow) => {
+            const ratios = row.sources[data.sourceId];
+            if (!ratios) return <Text type="secondary">-</Text>;
+
+            // Check if this is a per-request pricing model
+            const isPerRequest = ratios.modelPrice !== undefined && ratios.modelPrice > 0;
+            const isLowest = row.lowestSourceId === data.sourceId;
+
+            if (isPerRequest) {
+              // Display per-request pricing
+              let realCost: number | undefined;
+              if (showRealCost && priceRate && priceRate > 0) {
+                const unitCost = 1 / priceRate;
+                realCost = ratios.modelPrice! * unitCost;
+              }
+
+              return (
+                <Space direction="vertical" size={0}>
+                  <Text strong={isLowest} style={{ color: isLowest ? '#52c41a' : undefined }}>
+                    按次计费
+                    {isLowest && (
+                      <Tag color="success" style={{ marginLeft: 4 }}>
+                        最低
+                      </Tag>
+                    )}
+                  </Text>
+                  {!showRealCost ? (
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      ${ratios.modelPrice!.toFixed(4)}/次
+                    </Text>
+                  ) : (
+                    <>
+                      {realCost !== undefined ? (
+                        <>
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            ¥{realCost.toFixed(4)}/次
+                          </Text>
+                          <Text type="secondary" style={{ fontSize: 11, color: '#999' }}>
+                            (${ratios.modelPrice!.toFixed(4)}/次)
+                          </Text>
+                        </>
+                      ) : (
+                        <>
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            ${ratios.modelPrice!.toFixed(4)}/次
+                          </Text>
+                          <Text type="warning" style={{ fontSize: 11 }}>
+                            (未配置汇率)
+                          </Text>
+                        </>
+                      )}
+                    </>
+                  )}
+                </Space>
+              );
+            }
+
+            // Display token-based pricing
+            const inputPrice = ratios.modelRatio * 0.75;
+            const outputPrice = inputPrice * ratios.completionRatio;
+
+            // Calculate real cost if exchange rate is available
+            let realInputCost: number | undefined;
+            let realOutputCost: number | undefined;
+            let unitCost: number | undefined;
+            if (showRealCost && priceRate && priceRate > 0) {
+              // Unit cost (单位成本) = 1 / priceRate
+              // This represents: 1 USD = X CNY
+              unitCost = 1 / priceRate;
+              // Real cost = USD price × unit cost
+              // Example: $0.75/M × 1元/美元 = 0.75元/M
+              realInputCost = inputPrice * unitCost;
+              realOutputCost = outputPrice * unitCost;
+              
+              console.log(`[${data.sourceName}] Model: ${row.modelId}, priceRate: ${priceRate}, unitCost: ${unitCost}, inputPrice: $${inputPrice}, realInputCost: ¥${realInputCost}`);
+            }
+
+            return (
+              <Space direction="vertical" size={0}>
+                <Text strong={isLowest} style={{ color: isLowest ? '#52c41a' : undefined }}>
+                  倍率: {ratios.modelRatio.toFixed(4)}
+                  {isLowest && (
+                    <Tag color="success" style={{ marginLeft: 4 }}>
+                      最低
+                    </Tag>
+                  )}
+                </Text>
+                {!showRealCost ? (
+                  <>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      输入: ${inputPrice.toFixed(4)}/M
+                    </Text>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      输出: ${outputPrice.toFixed(4)}/M
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    {realInputCost !== undefined && realOutputCost !== undefined ? (
+                      <>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          输入: ¥{realInputCost.toFixed(4)}/M
+                        </Text>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          输出: ¥{realOutputCost.toFixed(4)}/M
+                        </Text>
+                        <Text type="secondary" style={{ fontSize: 11, color: '#999' }}>
+                          (${inputPrice.toFixed(4)}/M)
+                        </Text>
+                      </>
+                    ) : (
+                      <>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          输入: ${inputPrice.toFixed(4)}/M
+                        </Text>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          输出: ${outputPrice.toFixed(4)}/M
+                        </Text>
+                        <Text type="warning" style={{ fontSize: 11 }}>
+                          (未配置汇率)
+                        </Text>
+                      </>
+                    )}
+                  </>
+                )}
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  补全倍率: {ratios.completionRatio.toFixed(2)}
+                </Text>
+              </Space>
+            );
+          },
+        };
+      }),
   ];
 
   const rowSelection = {
@@ -386,17 +867,39 @@ export default function ChannelSourceRatios() {
   return (
     <div>
       <Title level={4} style={{ marginBottom: 16 }}>
-        渠道源倍率对比
+        实例站倍率同步
       </Title>
 
       <Alert
         type="info"
         showIcon
         message="功能说明"
-        description="对比多个渠道源（中转商）的倍率配置，找出最便宜的渠道源，并可以一键应用到您的实例。"
+        description="对比多个渠道源（中转商）的倍率配置，找出最便宜的渠道源，并可以一键应用到您的实例。数据会自动缓存 24 小时，下次访问时自动加载。"
         style={{ marginBottom: 16 }}
         closable
       />
+
+      {/* Cache status summary */}
+      {cacheLoaded && ratioData.length > 0 && (
+        <Alert
+          type="success"
+          showIcon
+          icon={<DatabaseOutlined />}
+          message={
+            <Space>
+              <span>缓存状态</span>
+              {ratioData.some((d) => d.isFromCache) && (
+                <Tag color="blue">已加载 {ratioData.filter((d) => d.isFromCache).length} 个缓存</Tag>
+              )}
+              {ratioData.some((d) => !d.isFromCache) && (
+                <Tag color="green">已获取 {ratioData.filter((d) => !d.isFromCache).length} 个实时数据</Tag>
+              )}
+            </Space>
+          }
+          style={{ marginBottom: 16 }}
+          closable
+        />
+      )}
 
       {/* Controls */}
       <Card size="small" style={{ marginBottom: 16 }}>
@@ -432,21 +935,48 @@ export default function ChannelSourceRatios() {
                 allowClear
                 style={{ width: 250 }}
               />
-              <Space>
-                <Switch
-                  checked={showUnsetOnly}
-                  onChange={(checked) => {
-                    setShowUnsetOnly(checked);
-                    if (checked && ownedModels.size === 0) {
-                      fetchOwnedModels();
-                    }
-                  }}
-                  loading={loadingOwned}
-                />
-                <span style={{ fontSize: 14 }}>只看未设置倍率的模型</span>
-                <Tooltip title="只显示在您的实例中已启用但还没有配置倍率的模型">
-                  <InfoCircleOutlined style={{ color: '#999', cursor: 'help' }} />
-                </Tooltip>
+              <Select
+                mode="multiple"
+                placeholder="筛选模型提供商"
+                value={selectedProviders}
+                onChange={setSelectedProviders}
+                style={{ minWidth: 200 }}
+                maxTagCount="responsive"
+                allowClear
+              >
+                {allProviders.map(provider => (
+                  <Select.Option key={provider} value={provider}>
+                    {provider}
+                  </Select.Option>
+                ))}
+              </Select>
+              <Space direction="vertical" size="small">
+                <Space>
+                  <Switch
+                    checked={showRealCost}
+                    onChange={setShowRealCost}
+                  />
+                  <span style={{ fontSize: 14 }}>显示实际成本（含汇率）</span>
+                  <Tooltip title="开启后，价格会根据渠道源的充值汇率转换为人民币显示">
+                    <InfoCircleOutlined style={{ color: '#999', cursor: 'help' }} />
+                  </Tooltip>
+                </Space>
+                <Space>
+                  <Switch
+                    checked={showUnsetOnly}
+                    onChange={(checked) => {
+                      setShowUnsetOnly(checked);
+                      if (checked && ownedModels.size === 0) {
+                        fetchOwnedModels();
+                      }
+                    }}
+                    loading={loadingOwned}
+                  />
+                  <span style={{ fontSize: 14 }}>只看未设置倍率的模型</span>
+                  <Tooltip title="只显示在您的实例中已启用但还没有配置倍率的模型">
+                    <InfoCircleOutlined style={{ color: '#999', cursor: 'help' }} />
+                  </Tooltip>
+                </Space>
               </Space>
               <Button
                 type="default"
@@ -501,14 +1031,17 @@ export default function ChannelSourceRatios() {
       )}
 
       {/* Loading */}
-      {loading && (
+      {(loading || cacheLoading) && (
         <div style={{ textAlign: 'center', padding: '40px 0' }}>
-          <Spin size="large" tip="正在获取倍率数据..." />
+          <Spin
+            size="large"
+            tip={cacheLoading ? '正在加载缓存数据...' : '正在获取倍率数据...'}
+          />
         </div>
       )}
 
       {/* Table */}
-      {!loading && ratioData.length > 0 && (
+      {!loading && !cacheLoading && ratioData.length > 0 && (
         <Table<ComparisonRow>
           rowKey="modelId"
           columns={columns}

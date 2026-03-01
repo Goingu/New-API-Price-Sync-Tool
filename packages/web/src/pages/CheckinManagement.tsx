@@ -128,8 +128,12 @@ export default function CheckinManagement() {
 
       // Convert TimePicker value to HH:mm string
       const payload = {
-        autoCheckin: values.autoCheckin,
-        checkinTime: values.checkinTime ? values.checkinTime.format('HH:mm') : '00:05',
+        checkinConfig: {
+          sourceId: editingTarget!.id!,
+          autoCheckin: values.autoCheckin,
+          checkinTime: values.checkinTime ? values.checkinTime.format('HH:mm') : '00:05',
+          createdAt: editingTarget!.createdAt || new Date().toISOString()
+        }
       };
 
       await updateCheckinTarget(editingTarget!.id!, payload);

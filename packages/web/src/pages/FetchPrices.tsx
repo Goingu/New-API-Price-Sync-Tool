@@ -60,13 +60,19 @@ export default function FetchPrices() {
   }, []); // Only run once on mount
 
   const totalModels = results.reduce((sum, r) => sum + (r.success ? r.models.length : 0), 0);
+  const totalPerToken = results.reduce(
+    (sum, r) => sum + (r.success ? r.models.filter((m) => m.pricingType !== 'per_request').length : 0), 0,
+  );
+  const totalPerRequest = results.reduce(
+    (sum, r) => sum + (r.success ? r.models.filter((m) => m.pricingType === 'per_request').length : 0), 0,
+  );
   const successCount = results.filter((r) => r.success).length;
   const failCount = results.filter((r) => !r.success).length;
 
   return (
     <div>
       <Title level={4} style={{ marginBottom: 24 }}>
-        抓取上游价格
+        抓取官方价格
       </Title>
 
       {/* Action buttons */}
@@ -147,7 +153,9 @@ export default function FetchPrices() {
                 </>
               )}
             </Descriptions.Item>
-            <Descriptions.Item label="模型总数">{totalModels}</Descriptions.Item>
+            <Descriptions.Item label="模型总数">
+              {totalModels}（按 Token: {totalPerToken}，按次: {totalPerRequest}）
+            </Descriptions.Item>
           </Descriptions>
 
           {/* Provider result cards */}
@@ -179,27 +187,56 @@ function ProviderCard({ result }: { result: ProviderPriceResult }) {
     return models.filter((m) => m.modelId.toLowerCase().includes(q));
   }, [models, searchText]);
 
+  const perTokenCount = models.filter((m) => m.pricingType !== 'per_request').length;
+  const perRequestCount = models.filter((m) => m.pricingType === 'per_request').length;
+
   const columns: ColumnsType<ModelPrice> = [
     {
       title: '模型名称',
       dataIndex: 'modelId',
       key: 'modelId',
-      width: 300,
+      width: 280,
       ellipsis: true,
     },
     {
-      title: '输入价格 (USD/1M tokens)',
+      title: '计费类型',
+      dataIndex: 'pricingType',
+      key: 'pricingType',
+      width: 90,
+      render: (type?: string) =>
+        type === 'per_request'
+          ? <Tag color="orange">按次</Tag>
+          : <Tag color="blue">按 Token</Tag>,
+    },
+    {
+      title: '输入价格 (USD/1M)',
       dataIndex: 'inputPricePerMillion',
       key: 'inputPricePerMillion',
       align: 'right',
-      render: (price: number) => `$${price.toFixed(4)}`,
+      render: (price: number, record: ModelPrice) =>
+        record.pricingType === 'per_request'
+          ? <span style={{ color: '#999' }}>—</span>
+          : `$${price.toFixed(4)}`,
     },
     {
-      title: '输出价格 (USD/1M tokens)',
+      title: '输出价格 (USD/1M)',
       dataIndex: 'outputPricePerMillion',
       key: 'outputPricePerMillion',
       align: 'right',
-      render: (price: number) => `$${price.toFixed(4)}`,
+      render: (price: number, record: ModelPrice) =>
+        record.pricingType === 'per_request'
+          ? <span style={{ color: '#999' }}>—</span>
+          : `$${price.toFixed(4)}`,
+    },
+    {
+      title: '模型价格 (USD/次)',
+      dataIndex: 'pricePerRequest',
+      key: 'pricePerRequest',
+      align: 'right',
+      render: (price: number | undefined, record: ModelPrice) =>
+        record.pricingType === 'per_request' && price !== undefined
+          ? `$${price.toFixed(4)}`
+          : <span style={{ color: '#999' }}>—</span>,
     },
   ];
 
@@ -224,6 +261,11 @@ function ProviderCard({ result }: { result: ProviderPriceResult }) {
           <Space direction="vertical" size={4} style={{ width: '100%' }}>
             <Text>
               模型数量: <Text strong>{models.length}</Text>
+              {perRequestCount > 0 && (
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {' '}(按 Token: {perTokenCount}，按次: {perRequestCount})
+                </Text>
+              )}
             </Text>
             <Text type="secondary" style={{ fontSize: 12 }}>
               获取时间: {new Date(fetchedAt).toLocaleString()}

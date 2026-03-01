@@ -1,0 +1,47 @@
+﻿src/routes/channelSources.ts(29,27): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/routes/channelSources.ts(81,27): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/routes/channelSources.ts(98,27): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/routes/channelSources.ts(114,27): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/routes/checkin.ts(41,33): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/routes/checkin.ts(74,33): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/routes/checkin.ts(94,27): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/routes/checkin.ts(140,33): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/routes/liveness.ts(57,27): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/routes/liveness.ts(76,27): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/routes/liveness.ts(95,33): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/routes/liveness.ts(101,65): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/routes/liveness.ts(114,33): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/routes/liveness.ts(161,33): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/routes/prices.ts(68,48): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/routes/prices.ts(110,52): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/routes/priority.ts(42,34): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/routes/priority.ts(71,34): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/routes/priority.ts(275,27): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/services/sqliteStore.ts(398,14): error TS2339: Property 'autoCheckin' does not exist on type 'Omit<ChannelSourceWithCheckin, "id" | "createdAt">'.
+src/services/sqliteStore.ts(399,14): error TS2339: Property 'checkinTime' does not exist on type 'Omit<ChannelSourceWithCheckin, "id" | "createdAt">'.
+src/services/sqliteStore.ts(409,7): error TS2353: Object literal may only specify known properties, and 'autoCheckin' does not exist in type 'ChannelSourceWithCheckin'.
+src/services/sqliteStore.ts(409,27): error TS2339: Property 'autoCheckin' does not exist on type 'Omit<ChannelSourceWithCheckin, "id" | "createdAt">'.
+src/services/sqliteStore.ts(410,27): error TS2339: Property 'checkinTime' does not exist on type 'Omit<ChannelSourceWithCheckin, "id" | "createdAt">'.
+src/services/sqliteStore.ts(444,17): error TS2339: Property 'autoCheckin' does not exist on type 'Partial<Omit<ChannelSourceWithCheckin, "id" | "createdAt">>'.
+src/services/sqliteStore.ts(446,27): error TS2339: Property 'autoCheckin' does not exist on type 'Partial<Omit<ChannelSourceWithCheckin, "id" | "createdAt">>'.
+src/services/sqliteStore.ts(448,17): error TS2339: Property 'checkinTime' does not exist on type 'Partial<Omit<ChannelSourceWithCheckin, "id" | "createdAt">>'.
+src/services/sqliteStore.ts(450,27): error TS2339: Property 'checkinTime' does not exist on type 'Partial<Omit<ChannelSourceWithCheckin, "id" | "createdAt">>'.

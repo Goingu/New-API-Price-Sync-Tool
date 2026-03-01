@@ -1,5 +1,6 @@
 import axios from 'axios';
 import type { ModelPrice, ProviderPriceResult, LiteLLMPriceEntry } from '@newapi-sync/shared';
+import { fetchAllModelsDevPrices } from './modelsDevFetcher.js';
 
 const LITELLM_URL =
   'https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json';
@@ -13,7 +14,7 @@ const SUPPORTED_PROVIDERS: Record<string, string> = {
   deepseek: 'DeepSeek',
   vertex_ai: 'Google',
   volcengine: '豆包 (字节跳动)',
-  alibaba: '通义千问 (阿里云)',
+  dashscope: '通义千问 (阿里云)',
   moonshot: 'Kimi (月之暗面)',
   zhipuai: '智谱 AI',
   baidu: '文心一言 (百度)',
@@ -79,29 +80,51 @@ export function parseLiteLLMEntry(
     return null;
   }
 
-  // Must have both cost fields as positive numbers
-  if (
-    typeof entry.input_cost_per_token !== 'number' ||
-    typeof entry.output_cost_per_token !== 'number' ||
-    entry.input_cost_per_token <= 0 ||
-    entry.output_cost_per_token <= 0
-  ) {
-    return null;
-  }
-
   const provider = resolveProvider(key, entry);
   if (!provider) {
     return null;
   }
 
-  return {
-    modelId: key,
-    modelName: key,
-    provider,
-    inputPricePerMillion: entry.input_cost_per_token * TOKENS_PER_MILLION,
-    outputPricePerMillion: entry.output_cost_per_token * TOKENS_PER_MILLION,
-  };
+  // Priority 1: per-token pricing (more precise)
+  if (
+    typeof entry.input_cost_per_token === 'number' &&
+    typeof entry.output_cost_per_token === 'number' &&
+    entry.input_cost_per_token > 0 &&
+    entry.output_cost_per_token > 0
+  ) {
+    return {
+      modelId: key,
+      modelName: key,
+      provider,
+      pricingType: 'per_token',
+      inputPricePerMillion: entry.input_cost_per_token * TOKENS_PER_MILLION,
+      outputPricePerMillion: entry.output_cost_per_token * TOKENS_PER_MILLION,
+    };
+  }
+
+  // Priority 2: per-request pricing (fallback)
+  if (
+    typeof entry.input_cost_per_request === 'number' &&
+    entry.input_cost_per_request > 0
+  ) {
+    const outputCost =
+      typeof entry.output_cost_per_request === 'number'
+        ? entry.output_cost_per_request
+        : 0;
+    return {
+      modelId: key,
+      modelName: key,
+      provider,
+      pricingType: 'per_request',
+      inputPricePerMillion: 0,
+      outputPricePerMillion: 0,
+      pricePerRequest: entry.input_cost_per_request + outputCost,
+    };
+  }
+
+  return null;
 }
+
 
 /**
  * Fetch prices for a specific provider from the LiteLLM data source.
@@ -129,9 +152,44 @@ export async function fetchProviderPrices(provider: string): Promise<ProviderPri
 
 /**
  * Fetch prices for all supported providers in parallel.
+ * Combines data from LiteLLM (international providers) and models.dev (Chinese providers).
  * Individual provider failures do not affect other providers.
  */
 export async function fetchAllPrices(): Promise<ProviderPriceResult[]> {
+  // Fetch from both data sources in parallel
+  const [litellmResults, modelsDevResults] = await Promise.all([
+    fetchAllLiteLLMPrices(),
+    fetchAllModelsDevPrices(),
+  ]);
+
+  // Merge results, preferring models.dev for Chinese providers
+  const chineseProviders = new Set([
+    '通义千问 (阿里云)',
+    '智谱 AI',
+    '豆包 (字节跳动)',
+  ]);
+
+  const mergedResults = new Map<string, ProviderPriceResult>();
+
+  // Add LiteLLM results first
+  for (const result of litellmResults) {
+    mergedResults.set(result.provider, result);
+  }
+
+  // Override with models.dev results for Chinese providers
+  for (const result of modelsDevResults) {
+    if (chineseProviders.has(result.provider)) {
+      mergedResults.set(result.provider, result);
+    }
+  }
+
+  return Array.from(mergedResults.values());
+}
+
+/**
+ * Fetch prices from LiteLLM for all supported providers.
+ */
+async function fetchAllLiteLLMPrices(): Promise<ProviderPriceResult[]> {
   const providerNames = Object.values(SUPPORTED_PROVIDERS);
   // Deduplicate (vertex_ai and gemini/ both map to "Google")
   const unique = [...new Set(providerNames)];

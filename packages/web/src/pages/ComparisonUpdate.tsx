@@ -107,6 +107,7 @@ export default function ComparisonUpdate() {
             const ratioConfig: RatioConfig = {
               modelRatio: apiData.model_ratio || apiData.modelRatio || {},
               completionRatio: apiData.completion_ratio || apiData.completionRatio || {},
+              modelPrice: apiData.model_price || apiData.modelPrice,
             };
             dispatch({ type: 'SET_RATIOS', payload: { data: ratioConfig, loading: false } });
           }
@@ -173,11 +174,15 @@ export default function ComparisonUpdate() {
         r.models.map((m) => ({
           modelId: m.modelId,
           provider: m.provider, // Preserve provider info
-          modelRatio: m.inputPricePerMillion / 0.75,
+          modelRatio: m.pricingType === 'per_request' ? 0 : m.inputPricePerMillion / 0.75,
           completionRatio:
-            m.inputPricePerMillion > 0
-              ? m.outputPricePerMillion / m.inputPricePerMillion
-              : 1,
+            m.pricingType === 'per_request'
+              ? 0
+              : m.inputPricePerMillion > 0
+                ? m.outputPricePerMillion / m.inputPricePerMillion
+                : 1,
+          pricingType: m.pricingType,
+          pricePerRequest: m.pricePerRequest,
         })),
       );
 
@@ -287,10 +292,13 @@ export default function ComparisonUpdate() {
       // Save update log
       const logDetails: UpdateLogModelDetail[] = selectedRows.map((row) => ({
         modelId: row.modelId,
+        pricingType: row.pricingType,
         oldModelRatio: row.currentRatio ?? 0,
         newModelRatio: row.newRatio ?? 0,
         oldCompletionRatio: row.currentCompletionRatio ?? 1,
         newCompletionRatio: row.newCompletionRatio ?? 1,
+        oldPrice: row.pricingType === 'per_request' ? row.currentPrice : undefined,
+        newPrice: row.pricingType === 'per_request' ? row.newPrice : undefined,
       }));
 
       const logEntry: UpdateLogEntry = {
@@ -329,6 +337,7 @@ export default function ComparisonUpdate() {
           const ratioConfig: RatioConfig = {
             modelRatio: apiData.model_ratio || apiData.modelRatio || {},
             completionRatio: apiData.completion_ratio || apiData.completionRatio || {},
+            modelPrice: apiData.model_price || apiData.modelPrice,
           };
           dispatch({ type: 'SET_RATIOS', payload: { data: ratioConfig, loading: false } });
         }
@@ -364,6 +373,20 @@ export default function ComparisonUpdate() {
       render: (v: string) => v || '-',
     },
     {
+      title: '计费类型',
+      dataIndex: 'pricingType',
+      width: 90,
+      filters: [
+        { text: '按 Token', value: 'per_token' },
+        { text: '按次', value: 'per_request' },
+      ],
+      onFilter: (value, record) => record.pricingType === value,
+      render: (type?: string) =>
+        type === 'per_request'
+          ? <Tag color="orange">按次</Tag>
+          : <Tag color="blue">按 Token</Tag>,
+    },
+    {
       title: '状态',
       dataIndex: 'status',
       width: 110,
@@ -377,13 +400,37 @@ export default function ComparisonUpdate() {
       title: '当前倍率',
       dataIndex: 'currentRatio',
       width: 110,
-      render: (v?: number) => (v !== undefined ? v.toFixed(4) : '-'),
+      render: (v: number | undefined, row: ComparisonRow) =>
+        row.pricingType === 'per_request'
+          ? <span style={{ color: '#999' }}>不适用</span>
+          : v !== undefined ? v.toFixed(4) : '-',
     },
     {
       title: '新倍率',
       dataIndex: 'newRatio',
       width: 110,
-      render: (v?: number) => (v !== undefined ? v.toFixed(4) : '-'),
+      render: (v: number | undefined, row: ComparisonRow) =>
+        row.pricingType === 'per_request'
+          ? <span style={{ color: '#999' }}>不适用</span>
+          : v !== undefined ? v.toFixed(4) : '-',
+    },
+    {
+      title: '当前价格',
+      dataIndex: 'currentPrice',
+      width: 110,
+      render: (v: number | undefined, row: ComparisonRow) =>
+        row.pricingType === 'per_request' && v !== undefined
+          ? `$${v.toFixed(4)}/次`
+          : <span style={{ color: '#999' }}>—</span>,
+    },
+    {
+      title: '新价格',
+      dataIndex: 'newPrice',
+      width: 110,
+      render: (v: number | undefined, row: ComparisonRow) =>
+        row.pricingType === 'per_request' && v !== undefined
+          ? `$${v.toFixed(4)}/次`
+          : <span style={{ color: '#999' }}>—</span>,
     },
     {
       title: '差异 %',
@@ -397,24 +444,22 @@ export default function ComparisonUpdate() {
       },
     },
     {
-      title: '绝对差值',
-      width: 100,
-      render: (_: unknown, row: ComparisonRow) => {
-        if (row.currentRatio === undefined || row.newRatio === undefined) return '-';
-        return Math.abs(row.newRatio - row.currentRatio).toFixed(4);
-      },
-    },
-    {
       title: '当前补全倍率',
       dataIndex: 'currentCompletionRatio',
       width: 120,
-      render: (v?: number) => (v !== undefined ? v.toFixed(4) : '-'),
+      render: (v: number | undefined, row: ComparisonRow) =>
+        row.pricingType === 'per_request'
+          ? <span style={{ color: '#999' }}>不适用</span>
+          : v !== undefined ? v.toFixed(4) : '-',
     },
     {
       title: '新补全倍率',
       dataIndex: 'newCompletionRatio',
       width: 120,
-      render: (v?: number) => (v !== undefined ? v.toFixed(4) : '-'),
+      render: (v: number | undefined, row: ComparisonRow) =>
+        row.pricingType === 'per_request'
+          ? <span style={{ color: '#999' }}>不适用</span>
+          : v !== undefined ? v.toFixed(4) : '-',
     },
     {
       title: '操作',
@@ -640,7 +685,7 @@ export default function ComparisonUpdate() {
         width={700}
       >
         <p>
-          即将更新 <Text strong>{selectedRows.length}</Text> 个模型的倍率：
+          即将更新 <Text strong>{selectedRows.length}</Text> 个模型的倍率/价格：
         </p>
         <Table<ComparisonRow>
           rowKey="modelId"
@@ -651,14 +696,26 @@ export default function ComparisonUpdate() {
           columns={[
             { title: '模型', dataIndex: 'modelId', ellipsis: true },
             {
-              title: '当前倍率 → 新倍率',
+              title: '计费类型',
+              width: 80,
               render: (_: unknown, r: ComparisonRow) =>
-                `${r.currentRatio?.toFixed(4) ?? 'N/A'} → ${r.newRatio?.toFixed(4) ?? 'N/A'}`,
+                r.pricingType === 'per_request'
+                  ? <Tag color="orange">按次</Tag>
+                  : <Tag color="blue">按 Token</Tag>,
+            },
+            {
+              title: '变更详情',
+              render: (_: unknown, r: ComparisonRow) =>
+                r.pricingType === 'per_request'
+                  ? `$${r.currentPrice?.toFixed(4) ?? 'N/A'}/次 → $${r.newPrice?.toFixed(4) ?? 'N/A'}/次`
+                  : `${r.currentRatio?.toFixed(4) ?? 'N/A'} → ${r.newRatio?.toFixed(4) ?? 'N/A'}`,
             },
             {
               title: '补全倍率',
               render: (_: unknown, r: ComparisonRow) =>
-                `${r.currentCompletionRatio?.toFixed(4) ?? 'N/A'} → ${r.newCompletionRatio?.toFixed(4) ?? 'N/A'}`,
+                r.pricingType === 'per_request'
+                  ? <span style={{ color: '#999' }}>不适用</span>
+                  : `${r.currentCompletionRatio?.toFixed(4) ?? 'N/A'} → ${r.newCompletionRatio?.toFixed(4) ?? 'N/A'}`,
             },
           ]}
         />
