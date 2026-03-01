@@ -80,6 +80,9 @@ export default function ChannelSourceRatios() {
   const [sourcePriceRates, setSourcePriceRates] = useState<Map<number, number>>(new Map());
   const [selectedProviders, setSelectedProviders] = useState<string[]>([]);
 
+  // Group selection state
+  const [selectedGroups, setSelectedGroups] = useState<Map<string, Set<number>>>(new Map()); // channelName -> Set of sourceIds
+
   // Cache-related state
   const [cacheLoaded, setCacheLoaded] = useState(false);
   const [cacheLoading, setCacheLoading] = useState(false);
@@ -91,7 +94,27 @@ export default function ChannelSourceRatios() {
       try {
         const resp = await getChannelSources();
         if (resp.success) {
-          setSources(resp.sources.filter((s) => s.enabled));
+          const enabledSources = resp.sources.filter((s) => s.enabled);
+          setSources(enabledSources);
+
+          // Initialize group selection: group sources by base name
+          const groupMap = new Map<string, Set<number>>();
+          enabledSources.forEach(source => {
+            // Use the base name (without group suffix) as the group key
+            const baseName = source.name;
+            if (!groupMap.has(baseName)) {
+              groupMap.set(baseName, new Set());
+            }
+            groupMap.get(baseName)!.add(source.id!);
+          });
+
+          // Auto-select first group of each channel
+          const initialSelection = new Map<string, Set<number>>();
+          groupMap.forEach((sourceIds, channelName) => {
+            const firstSourceId = Array.from(sourceIds)[0];
+            initialSelection.set(channelName, new Set([firstSourceId]));
+          });
+          setSelectedGroups(initialSelection);
         }
       } catch (err) {
         console.error('Failed to fetch channel sources:', err);
@@ -173,6 +196,15 @@ export default function ChannelSourceRatios() {
     loadCachedRatios();
   }, []);
 
+  // Compute actually selected source IDs from group selection
+  const actualSelectedSourceIds = useMemo(() => {
+    const ids: number[] = [];
+    selectedGroups.forEach((sourceIds) => {
+      ids.push(...Array.from(sourceIds));
+    });
+    return ids;
+  }, [selectedGroups]);
+
   // Load cached ratios from database
   const loadCachedRatios = useCallback(async () => {
     setCacheLoading(true);
@@ -237,7 +269,7 @@ export default function ChannelSourceRatios() {
 
   // Fetch and compare ratios
   const fetchRatios = useCallback(async () => {
-    if (selectedSourceIds.length === 0) {
+    if (actualSelectedSourceIds.length === 0) {
       message.warning('请至少选择一个渠道源');
       return;
     }
@@ -245,7 +277,7 @@ export default function ChannelSourceRatios() {
     setLoading(true);
     setError(undefined);
     try {
-      const resp = await compareChannelSourceRatios(selectedSourceIds);
+      const resp = await compareChannelSourceRatios(actualSelectedSourceIds);
       console.log('Compare ratios response:', resp);
 
       if (resp.success) {
@@ -298,7 +330,7 @@ export default function ChannelSourceRatios() {
     } finally {
       setLoading(false);
     }
-  }, [selectedSourceIds, showUnsetOnly, ownedModels.size, saveCachedRatios]);
+  }, [actualSelectedSourceIds, showUnsetOnly, ownedModels.size, saveCachedRatios]);
 
   // Fetch owned models from user's instance
   const fetchOwnedModels = useCallback(async () => {
@@ -904,24 +936,88 @@ export default function ChannelSourceRatios() {
       {/* Controls */}
       <Card size="small" style={{ marginBottom: 16 }}>
         <Space direction="vertical" style={{ width: '100%' }} size="middle">
+          {/* Channel Group Selection */}
+          <div>
+            <Text strong style={{ marginBottom: 8, display: 'block' }}>选择渠道源分组:</Text>
+            {Array.from(
+              sources.reduce((map, source) => {
+                const baseName = source.name;
+                if (!map.has(baseName)) {
+                  map.set(baseName, []);
+                }
+                map.get(baseName)!.push(source);
+                return map;
+              }, new Map<string, ChannelSource[]>())
+            ).map(([channelName, channelSources]) => {
+              // Only show channels with multiple groups
+              if (channelSources.length === 1 && !channelSources[0].groupName) {
+                // Single source without group, use simple checkbox
+                const source = channelSources[0];
+                const isSelected = selectedGroups.get(channelName)?.has(source.id!) || false;
+                return (
+                  <div key={channelName} style={{ marginBottom: 8 }}>
+                    <Checkbox
+                      checked={isSelected}
+                      onChange={(e) => {
+                        const newGroups = new Map(selectedGroups);
+                        if (e.target.checked) {
+                          newGroups.set(channelName, new Set([source.id!]));
+                        } else {
+                          newGroups.delete(channelName);
+                        }
+                        setSelectedGroups(newGroups);
+                      }}
+                    >
+                      {channelName}
+                    </Checkbox>
+                  </div>
+                );
+              }
+
+              // Multiple groups or has group names
+              const selectedIds = selectedGroups.get(channelName) || new Set();
+              return (
+                <div key={channelName} style={{ marginBottom: 12 }}>
+                  <Text strong>{channelName}:</Text>
+                  <Space style={{ marginLeft: 16 }} wrap>
+                    {channelSources.map((source) => (
+                      <Checkbox
+                        key={source.id}
+                        checked={selectedIds.has(source.id!)}
+                        onChange={(e) => {
+                          const newGroups = new Map(selectedGroups);
+                          const newIds = new Set(selectedIds);
+                          if (e.target.checked) {
+                            newIds.add(source.id!);
+                          } else {
+                            newIds.delete(source.id!);
+                          }
+                          if (newIds.size > 0) {
+                            newGroups.set(channelName, newIds);
+                          } else {
+                            newGroups.delete(channelName);
+                          }
+                          setSelectedGroups(newGroups);
+                        }}
+                      >
+                        {source.groupName || '默认'}
+                      </Checkbox>
+                    ))}
+                  </Space>
+                </div>
+              );
+            })}
+          </div>
+
           <Space wrap>
-            <Text>选择渠道源:</Text>
-            <Select
-              mode="multiple"
-              placeholder="选择要对比的渠道源"
-              style={{ minWidth: 300 }}
-              value={selectedSourceIds}
-              onChange={setSelectedSourceIds}
-              options={sources.map((s) => ({ label: s.name, value: s.id! }))}
-            />
             <Button
               type="primary"
               icon={<ReloadOutlined />}
               onClick={fetchRatios}
               loading={loading}
-              disabled={selectedSourceIds.length === 0}
+              disabled={actualSelectedSourceIds.length === 0}
             >
-              获取倍率
+              获取倍率 ({actualSelectedSourceIds.length})
             </Button>
           </Space>
 
