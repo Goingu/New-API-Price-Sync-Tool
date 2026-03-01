@@ -21,12 +21,12 @@
 
 ## 🚀 快速开始
 
-### 使用 Docker Compose（推荐）
+### 方式一: 使用 Docker Compose（推荐）
 
 ```bash
 # 克隆项目
-git clone https://github.com/your-username/new-api-sync.git
-cd new-api-sync
+git clone https://github.com/Goingu/New-API-Price-Sync-Tool.git
+cd New-API-Price-Sync-Tool
 
 # 启动服务
 docker-compose up -d
@@ -34,12 +34,29 @@ docker-compose up -d
 # 访问 http://localhost:3001
 ```
 
-### 手动部署
+### 方式二: 使用 GitHub Container Registry
+
+```bash
+# 拉取最新镜像
+docker pull ghcr.io/goingu/new-api-price-sync-tool:latest
+
+# 运行容器
+docker run -d \
+  --name newapi-sync \
+  -p 3001:3001 \
+  -v $(pwd)/data:/app/data \
+  --restart unless-stopped \
+  ghcr.io/goingu/new-api-price-sync-tool:latest
+
+# 访问 http://localhost:3001
+```
+
+### 方式三: 手动部署
 
 #### 前置要求
 
 - Node.js 20+
-- npm 或 pnpm
+- npm
 
 #### 安装步骤
 
@@ -55,6 +72,8 @@ npm start
 ```
 
 服务将在 `http://localhost:3001` 启动。
+
+**详细部署文档**: 查看 [DEPLOYMENT.md](./DEPLOYMENT.md) 了解更多部署选项和配置说明。
 
 ## 📖 使用指南
 
