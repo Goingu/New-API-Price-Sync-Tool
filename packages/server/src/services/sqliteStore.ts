@@ -242,6 +242,27 @@ export class SQLiteStore {
 
     // Migration: Add user_id to connection_settings
     this.migrateConnectionSettingsUserId();
+
+    // Migration: Add group_name and parent_source_id to channel_sources
+    this.migrateChannelSourceGroups();
+  }
+
+  private migrateChannelSourceGroups(): void {
+    const columns = this.db.pragma('table_info(channel_sources)') as Array<{ name: string }>;
+    const hasGroupName = columns.some((col) => col.name === 'group_name');
+    const hasParentSourceId = columns.some((col) => col.name === 'parent_source_id');
+
+    if (!hasGroupName) {
+      console.log('[SQLiteStore] Adding group_name column to channel_sources...');
+      this.db.exec('ALTER TABLE channel_sources ADD COLUMN group_name TEXT');
+    }
+
+    if (!hasParentSourceId) {
+      console.log('[SQLiteStore] Adding parent_source_id column to channel_sources...');
+      this.db.exec('ALTER TABLE channel_sources ADD COLUMN parent_source_id INTEGER REFERENCES channel_sources(id) ON DELETE SET NULL');
+    }
+
+    console.log('[SQLiteStore] Channel source groups migration completed');
   }
 
   private migrateAddUserIdColumn(): void {
@@ -983,7 +1004,7 @@ export class SQLiteStore {
   addChannelSource(source: Omit<ChannelSource, 'id' | 'createdAt'>): ChannelSource {
     const createdAt = new Date().toISOString();
     const stmt = this.db.prepare(
-      'INSERT INTO channel_sources (name, base_url, api_key, user_id, enabled, is_own_instance, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO channel_sources (name, base_url, api_key, user_id, enabled, is_own_instance, group_name, parent_source_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     const result = stmt.run(
       source.name,
@@ -992,6 +1013,8 @@ export class SQLiteStore {
       source.userId ?? null,
       source.enabled ? 1 : 0,
       source.isOwnInstance ? 1 : 0,
+      source.groupName ?? null,
+      source.parentSourceId ?? null,
       createdAt
     );
     return {
@@ -1002,6 +1025,8 @@ export class SQLiteStore {
       userId: source.userId,
       enabled: source.enabled,
       isOwnInstance: source.isOwnInstance,
+      groupName: source.groupName,
+      parentSourceId: source.parentSourceId,
       createdAt,
     };
   }
@@ -1039,6 +1064,14 @@ export class SQLiteStore {
       fields.push('is_own_instance = ?');
       params.push(updates.isOwnInstance ? 1 : 0);
     }
+    if (updates.groupName !== undefined) {
+      fields.push('group_name = ?');
+      params.push(updates.groupName ?? null);
+    }
+    if (updates.parentSourceId !== undefined) {
+      fields.push('parent_source_id = ?');
+      params.push(updates.parentSourceId ?? null);
+    }
 
     if (fields.length > 0) {
       params.push(id);
@@ -1054,7 +1087,7 @@ export class SQLiteStore {
 
   getChannelSources(): ChannelSource[] {
     const rows = this.db
-      .prepare('SELECT id, name, base_url, api_key, user_id, enabled, is_own_instance, created_at FROM channel_sources ORDER BY id ASC')
+      .prepare('SELECT id, name, base_url, api_key, user_id, enabled, is_own_instance, group_name, parent_source_id, created_at FROM channel_sources ORDER BY id ASC')
       .all() as Array<{
         id: number;
         name: string;
@@ -1063,6 +1096,8 @@ export class SQLiteStore {
         user_id: string | null;
         enabled: number;
         is_own_instance: number;
+        group_name: string | null;
+        parent_source_id: number | null;
         created_at: string;
       }>;
 
@@ -1072,6 +1107,13 @@ export class SQLiteStore {
       baseUrl: row.base_url,
       apiKey: row.api_key,
       userId: row.user_id ?? undefined,
+      enabled: Boolean(row.enabled),
+      isOwnInstance: Boolean(row.is_own_instance),
+      groupName: row.group_name ?? undefined,
+      parentSourceId: row.parent_source_id ?? undefined,
+      createdAt: row.created_at,
+    }));
+  }
       enabled: row.enabled === 1,
       isOwnInstance: row.is_own_instance === 1,
       createdAt: row.created_at,
@@ -1080,7 +1122,7 @@ export class SQLiteStore {
 
   getChannelSourceById(id: number): ChannelSource | null {
     const row = this.db
-      .prepare('SELECT id, name, base_url, api_key, user_id, enabled, is_own_instance, created_at FROM channel_sources WHERE id = ?')
+      .prepare('SELECT id, name, base_url, api_key, user_id, enabled, is_own_instance, group_name, parent_source_id, created_at FROM channel_sources WHERE id = ?')
       .get(id) as {
         id: number;
         name: string;
@@ -1089,6 +1131,8 @@ export class SQLiteStore {
         user_id: string | null;
         enabled: number;
         is_own_instance: number;
+        group_name: string | null;
+        parent_source_id: number | null;
         created_at: string;
       } | undefined;
 
@@ -1099,6 +1143,14 @@ export class SQLiteStore {
       name: row.name,
       baseUrl: row.base_url,
       apiKey: row.api_key,
+      userId: row.user_id ?? undefined,
+      enabled: Boolean(row.enabled),
+      isOwnInstance: Boolean(row.is_own_instance),
+      groupName: row.group_name ?? undefined,
+      parentSourceId: row.parent_source_id ?? undefined,
+      createdAt: row.created_at,
+    };
+  }
       userId: row.user_id ?? undefined,
       enabled: row.enabled === 1,
       isOwnInstance: row.is_own_instance === 1,

@@ -211,6 +211,8 @@ export interface ChannelSource {
   enabled: boolean;
   createdAt: string;
   isOwnInstance?: boolean; // 标记是否为自有实例
+  groupName?: string; // 分组名称(如 VIP1, VIP2, 普通用户等)
+  parentSourceId?: number; // 父渠道源ID,用于关联同一渠道的不同分组
 }
 
 // --- Checkin Types ---
