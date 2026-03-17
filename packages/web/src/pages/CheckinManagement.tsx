@@ -3,6 +3,7 @@ import dayjs from 'dayjs';
 import {
   Alert,
   Button,
+  Card,
   Form,
   Input,
   Modal,
@@ -230,7 +231,7 @@ export default function CheckinManagement() {
       key: 'enabled',
       width: 100,
       render: (enabled: boolean) => (
-        <span style={{ color: enabled ? '#52c41a' : '#999' }}>
+        <span style={{ color: enabled ? '#22c55e' : '#a1a1aa' }}>
           {enabled ? '启用' : '禁用'}
         </span>
       ),
@@ -364,12 +365,8 @@ export default function CheckinManagement() {
 
   return (
     <div>
-      <Title level={4} style={{ marginBottom: 24 }}>
-        签到管理
-      </Title>
-
-      {/* Action bar */}
-      <Space style={{ marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+        <Title level={4} style={{ margin: 0 }}>签到管理</Title>
         <Button
           icon={<ThunderboltOutlined />}
           loading={!!checkinLoading['all']}
@@ -377,9 +374,8 @@ export default function CheckinManagement() {
         >
           全部签到
         </Button>
-      </Space>
+      </div>
 
-      {/* Error */}
       {error && (
         <Alert
           type="error"
@@ -392,21 +388,22 @@ export default function CheckinManagement() {
         />
       )}
 
-      {/* Main table */}
-      <Table<TargetRow>
-        columns={columns}
-        dataSource={targets}
-        rowKey="id"
-        loading={loading}
-        expandable={{
-          expandedRowRender,
-          onExpand: (expanded, record) => {
-            if (expanded && record.id != null) loadRecords(record.id);
-          },
-        }}
-        pagination={false}
-        scroll={{ x: 1000 }}
-      />
+      <Card styles={{ body: { padding: 0 } }}>
+        <Table<TargetRow>
+          columns={columns}
+          dataSource={targets}
+          rowKey="id"
+          loading={loading}
+          expandable={{
+            expandedRowRender,
+            onExpand: (expanded, record) => {
+              if (expanded && record.id != null) loadRecords(record.id);
+            },
+          }}
+          pagination={false}
+          scroll={{ x: 1000 }}
+        />
+      </Card>
 
       {/* Add / Edit Modal */}
       <Modal

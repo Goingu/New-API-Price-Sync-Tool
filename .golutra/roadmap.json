@@ -1,0 +1,50 @@
+{
+  "_roadmapMeta": {
+    "updatedAt": 1773660677047
+  },
+  "roadmap": {
+    "objective": "优化前端页面：提升代码质量、组件拆分、性能优化",
+    "tasks": [
+      {
+        "id": 1,
+        "number": "01",
+        "pinned": true,
+        "sortOrder": 1,
+        "status": "in-progress",
+        "title": "优化大型页面组（InstanceRatioViewer 1372行 + ModelGroupManagement 1292行 + ChannelPriority 1254行）— 拆分组件、提取公共逻辑、优化渲染性能 [执行人: 01KKTWZZ6B67Q5GS5FTEWD6EXA]"
+      },
+      {
+        "id": 2,
+        "number": "02",
+        "pinned": true,
+        "sortOrder": 2,
+        "status": "done",
+        "title": "优化中型页面组 — 拆分组件、减少重复代码 [完成: 01KKTWZZ6B67Q5GS5FTEWD6EXA]"
+      },
+      {
+        "id": 3,
+        "number": "03",
+        "pinned": true,
+        "sortOrder": 3,
+        "status": "done",
+        "title": "优化其余页面组 — 统一样式、优化交互体验 [完成: 01KKTWZTHDBW2A0DCYBPTERDZ4]"
+      },
+      {
+        "id": 4,
+        "number": "04",
+        "pinned": false,
+        "sortOrder": 4,
+        "status": "done",
+        "title": "优化公共组件 — 提升复用性和可维护性 [完成: 01KKTWZTHDBW2A0DCYBPTERDZ4]"
+      },
+      {
+        "id": 5,
+        "number": "05",
+        "pinned": false,
+        "sortOrder": 5,
+        "status": "done",
+        "title": "整体检查：统一错误处理、loading 状态、响应式布局 [完成: 01KKTWZTHDBW2A0DCYBPTERDZ4]"
+      }
+    ]
+  }
+}

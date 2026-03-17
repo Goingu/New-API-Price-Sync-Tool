@@ -41,12 +41,14 @@ export function generateSubChannelName(
  * @param parentChannel - The parent channel to split from
  * @param modelId - The model ID for this sub-channel
  * @param subChannelName - The name for the sub-channel
+ * @param channelKey - Optional channel key to use (if not provided, uses parent's key)
  * @returns Sub-channel configuration (without id)
  */
 export function createSubChannelConfig(
   parentChannel: Channel,
   modelId: string,
-  subChannelName: string
+  subChannelName: string,
+  channelKey?: string
 ): Omit<Channel, 'id'> {
   // Parse models - handle both comma-separated string and JSON array
   let parentModels: string[] = [];
@@ -84,7 +86,7 @@ export function createSubChannelConfig(
   const config: any = {
     name: subChannelName,
     type: parentChannel.type,
-    key: parentChannel.key || '',
+    key: channelKey || parentChannel.key || '',
     base_url: parentChannel.base_url || '',
     models: modelId, // Single model as string
     model_mapping: Object.keys(subChannelModelMapping).length > 0
@@ -99,13 +101,55 @@ export function createSubChannelConfig(
   const additionalFields = [
     'proxy', 'test_model', 'model_test', 'groups', 'group',
     'config', 'plugin', 'tag', 'weight', 'auto_ban',
-    'pre_cost', 'is_edit', 'other'
+    'pre_cost', 'is_edit', 'other', 'max_input_tokens',
+    'multi_key_mode', 'openai_organization', 'status_code_mapping',
+    'setting', 'settings', 'mode'
   ];
 
   for (const field of additionalFields) {
     if ((parentChannel as any)[field] !== undefined) {
       config[field] = (parentChannel as any)[field];
     }
+  }
+
+  // Ensure groups is an array (New API requires this)
+  if (config.groups && Array.isArray(config.groups)) {
+    // groups already exists as array, keep it
+  } else if (config.group) {
+    // Convert group string to groups array
+    config.groups = [config.group];
+  } else {
+    // Default to ['default']
+    config.groups = ['default'];
+    config.group = 'default';
+  }
+
+  // Ensure group string exists
+  if (!config.group && config.groups && config.groups.length > 0) {
+    config.group = config.groups[0];
+  }
+
+  // Ensure required fields have default values
+  if (config.mode === undefined) {
+    config.mode = 'single';
+  }
+  if (config.max_input_tokens === undefined) {
+    config.max_input_tokens = 0;
+  }
+  if (config.multi_key_mode === undefined) {
+    config.multi_key_mode = 'random';
+  }
+  if (config.openai_organization === undefined) {
+    config.openai_organization = '';
+  }
+  if (config.status_code_mapping === undefined) {
+    config.status_code_mapping = '';
+  }
+  if (config.setting === undefined) {
+    config.setting = '{"force_format":false,"thinking_to_content":false,"proxy":"","pass_through_body_enabled":false,"system_prompt":"","system_prompt_override":false}';
+  }
+  if (config.settings === undefined) {
+    config.settings = '{"allow_service_tier":false,"disable_store":false,"allow_safety_identifier":false}';
   }
 
   return config;
@@ -129,7 +173,8 @@ export interface ValidationResult {
 export function generateSplitPreview(
   parentChannels: Channel[],
   modelFilters: Map<number, string[]>,
-  existingChannels: Channel[]
+  existingChannels: Channel[],
+  channelKeys?: Map<number, string> // Map of channelId -> channelKey from channel sources
 ): SplitPreview {
   const subChannels: SubChannelPreview[] = [];
   const parentChannelSummaries: SplitPreview['parentChannels'] = [];
@@ -180,9 +225,11 @@ export function generateSplitPreview(
       if (hasConflict) {
         nameConflicts++;
       }
-      
-      const config = createSubChannelConfig(parent, modelId, subChannelName);
-      
+
+      // Get channel key from channel sources if available
+      const channelKey = channelKeys?.get(parent.id);
+      const config = createSubChannelConfig(parent, modelId, subChannelName, channelKey);
+
       subChannels.push({
         name: subChannelName,
         modelId,
@@ -192,7 +239,7 @@ export function generateSplitPreview(
         nameConflict: hasConflict,
         originalName: hasConflict ? originalName : undefined,
       });
-      
+
       generatedNames.add(subChannelName);
     }
     

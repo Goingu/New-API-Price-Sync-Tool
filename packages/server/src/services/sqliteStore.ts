@@ -232,10 +232,19 @@ export class SQLiteStore {
 
       CREATE INDEX IF NOT EXISTS idx_model_manual_groups_model
         ON model_manual_groups(model_id, sort_order ASC);
+
+      CREATE TABLE IF NOT EXISTS gateway_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
     `);
 
     // Migration: Add user_id column to existing tables if they don't have it
     this.migrateAddUserIdColumn();
+
+    // Migration: Add channel_key column to channel_sources
+    this.migrateAddChannelKeyColumn();
 
     // Migration: Fix checkin_records foreign key to reference channel_sources
     this.migrateCheckinRecordsForeignKey();
@@ -245,6 +254,9 @@ export class SQLiteStore {
 
     // Migration: Add group_name and parent_source_id to channel_sources
     this.migrateChannelSourceGroups();
+    
+    // Migration: Add detected_base_price to channel_sources
+    this.migrateDetectedBasePrice();
   }
 
   private migrateChannelSourceGroups(): void {
@@ -263,6 +275,37 @@ export class SQLiteStore {
     }
 
     console.log('[SQLiteStore] Channel source groups migration completed');
+  }
+
+  private migrateDetectedBasePrice(): void {
+    const columns = this.db.pragma('table_info(channel_sources)') as Array<{ name: string }>;
+    const hasDetectedBasePrice = columns.some(col => col.name === 'detected_base_price');
+
+    if (!hasDetectedBasePrice) {
+      console.log('[SQLiteStore] Adding detected_base_price column to channel_sources...');
+      this.db.exec('ALTER TABLE channel_sources ADD COLUMN detected_base_price REAL');
+      console.log('[SQLiteStore] Detected base price migration completed');
+    }
+
+    const hasRemark = columns.some(col => col.name === 'remark');
+    if (!hasRemark) {
+      console.log('[SQLiteStore] Adding remark column to channel_sources...');
+      this.db.exec('ALTER TABLE channel_sources ADD COLUMN remark TEXT');
+      console.log('[SQLiteStore] Remark migration completed');
+    }
+  }
+
+  private migrateAddChannelKeyColumn(): void {
+    // Add channel_key column to channel_sources if it doesn't exist
+    try {
+      const channelColumns = this.db.pragma('table_info(channel_sources)') as Array<{ name: string }>;
+      if (channelColumns.length > 0 && !channelColumns.some(col => col.name === 'channel_key')) {
+        this.db.exec('ALTER TABLE channel_sources ADD COLUMN channel_key TEXT');
+        console.log('[SQLiteStore] Added channel_key column to channel_sources');
+      }
+    } catch (err) {
+      console.error('[SQLiteStore] Error adding channel_key column:', err);
+    }
   }
 
   private migrateAddUserIdColumn(): void {
@@ -1004,17 +1047,19 @@ export class SQLiteStore {
   addChannelSource(source: Omit<ChannelSource, 'id' | 'createdAt'>): ChannelSource {
     const createdAt = new Date().toISOString();
     const stmt = this.db.prepare(
-      'INSERT INTO channel_sources (name, base_url, api_key, user_id, enabled, is_own_instance, group_name, parent_source_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO channel_sources (name, base_url, api_key, channel_key, user_id, enabled, is_own_instance, group_name, parent_source_id, remark, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     const result = stmt.run(
       source.name,
       source.baseUrl,
       source.apiKey,
+      source.channelKey ?? null,
       source.userId ?? null,
       source.enabled ? 1 : 0,
       source.isOwnInstance ? 1 : 0,
       source.groupName ?? null,
       source.parentSourceId ?? null,
+      source.remark ?? null,
       createdAt
     );
     return {
@@ -1022,11 +1067,13 @@ export class SQLiteStore {
       name: source.name,
       baseUrl: source.baseUrl,
       apiKey: source.apiKey,
+      channelKey: source.channelKey,
       userId: source.userId,
       enabled: source.enabled,
       isOwnInstance: source.isOwnInstance,
       groupName: source.groupName,
       parentSourceId: source.parentSourceId,
+      remark: source.remark,
       createdAt,
     };
   }
@@ -1052,6 +1099,10 @@ export class SQLiteStore {
       fields.push('api_key = ?');
       params.push(updates.apiKey);
     }
+    if (updates.channelKey !== undefined) {
+      fields.push('channel_key = ?');
+      params.push(updates.channelKey ?? null);
+    }
     if (updates.userId !== undefined) {
       fields.push('user_id = ?');
       params.push(updates.userId ?? null);
@@ -1072,6 +1123,14 @@ export class SQLiteStore {
       fields.push('parent_source_id = ?');
       params.push(updates.parentSourceId ?? null);
     }
+    if (updates.detectedBasePrice !== undefined) {
+      fields.push('detected_base_price = ?');
+      params.push(updates.detectedBasePrice ?? null);
+    }
+    if (updates.remark !== undefined) {
+      fields.push('remark = ?');
+      params.push(updates.remark ?? null);
+    }
 
     if (fields.length > 0) {
       params.push(id);
@@ -1087,17 +1146,20 @@ export class SQLiteStore {
 
   getChannelSources(): ChannelSource[] {
     const rows = this.db
-      .prepare('SELECT id, name, base_url, api_key, user_id, enabled, is_own_instance, group_name, parent_source_id, created_at FROM channel_sources ORDER BY id ASC')
+      .prepare('SELECT id, name, base_url, api_key, channel_key, user_id, enabled, is_own_instance, group_name, parent_source_id, detected_base_price, remark, created_at FROM channel_sources ORDER BY id ASC')
       .all() as Array<{
         id: number;
         name: string;
         base_url: string;
         api_key: string;
+        channel_key: string | null;
         user_id: string | null;
         enabled: number;
         is_own_instance: number;
         group_name: string | null;
         parent_source_id: number | null;
+        detected_base_price: number | null;
+        remark: string | null;
         created_at: string;
       }>;
 
@@ -1106,28 +1168,34 @@ export class SQLiteStore {
       name: row.name,
       baseUrl: row.base_url,
       apiKey: row.api_key,
+      channelKey: row.channel_key ?? undefined,
       userId: row.user_id ?? undefined,
       enabled: Boolean(row.enabled),
       isOwnInstance: Boolean(row.is_own_instance),
       groupName: row.group_name ?? undefined,
       parentSourceId: row.parent_source_id ?? undefined,
+      detectedBasePrice: row.detected_base_price ?? undefined,
+      remark: row.remark ?? undefined,
       createdAt: row.created_at,
     }));
   }
 
   getChannelSourceById(id: number): ChannelSource | null {
     const row = this.db
-      .prepare('SELECT id, name, base_url, api_key, user_id, enabled, is_own_instance, group_name, parent_source_id, created_at FROM channel_sources WHERE id = ?')
+      .prepare('SELECT id, name, base_url, api_key, channel_key, user_id, enabled, is_own_instance, group_name, parent_source_id, detected_base_price, remark, created_at FROM channel_sources WHERE id = ?')
       .get(id) as {
         id: number;
         name: string;
         base_url: string;
         api_key: string;
+        channel_key: string | null;
         user_id: string | null;
         enabled: number;
         is_own_instance: number;
         group_name: string | null;
         parent_source_id: number | null;
+        detected_base_price: number | null;
+        remark: string | null;
         created_at: string;
       } | undefined;
 
@@ -1138,17 +1206,14 @@ export class SQLiteStore {
       name: row.name,
       baseUrl: row.base_url,
       apiKey: row.api_key,
+      channelKey: row.channel_key ?? undefined,
       userId: row.user_id ?? undefined,
       enabled: Boolean(row.enabled),
       isOwnInstance: Boolean(row.is_own_instance),
       groupName: row.group_name ?? undefined,
       parentSourceId: row.parent_source_id ?? undefined,
-      createdAt: row.created_at,
-    };
-  }
-      userId: row.user_id ?? undefined,
-      enabled: row.enabled === 1,
-      isOwnInstance: row.is_own_instance === 1,
+      detectedBasePrice: row.detected_base_price ?? undefined,
+      remark: row.remark ?? undefined,
       createdAt: row.created_at,
     };
   }
@@ -1774,7 +1839,7 @@ export class SQLiteStore {
         parentChannelId: row.parent_channel_id,
         parentChannelName: row.parent_channel_name,
         parentChannelConfig: JSON.parse(row.parent_channel_config_json),
-        subChannelIds: JSON.parse(row.sub_channel_ids_json),
+        subChannelIds: JSON.parse(row.sub_channel_ids_json).filter((id: unknown) => typeof id === 'number' && id > 0),
         modelFilter: row.model_filter_json ? JSON.parse(row.model_filter_json) : undefined,
         parentAction: row.parent_action as ParentChannelAction,
         autoPriorityEnabled: row.auto_priority_enabled === 1,
@@ -1824,7 +1889,7 @@ export class SQLiteStore {
         parentChannelId: row.parent_channel_id,
         parentChannelName: row.parent_channel_name,
         parentChannelConfig: JSON.parse(row.parent_channel_config_json),
-        subChannelIds: JSON.parse(row.sub_channel_ids_json),
+        subChannelIds: JSON.parse(row.sub_channel_ids_json).filter((id: unknown) => typeof id === 'number' && id > 0),
         modelFilter: row.model_filter_json ? JSON.parse(row.model_filter_json) : undefined,
         parentAction: row.parent_action as ParentChannelAction,
         autoPriorityEnabled: row.auto_priority_enabled === 1,
@@ -1985,6 +2050,28 @@ export class SQLiteStore {
       console.error(`[SQLiteStore] Failed to delete split config ${id}:`, error);
       throw error;
     }
+  }
+
+  // ─── Gateway Settings ────────────────────────────────────────────
+
+  getGatewaySetting(key: string): string | null {
+    const row = this.db
+      .prepare('SELECT value FROM gateway_settings WHERE key = ?')
+      .get(key) as { value: string } | undefined;
+    return row?.value ?? null;
+  }
+
+  setGatewaySetting(key: string, value: string): void {
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO gateway_settings (key, value, updated_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(key) DO UPDATE SET
+           value = excluded.value,
+           updated_at = excluded.updated_at`
+      )
+      .run(key, value, now);
   }
 
   close(): void {

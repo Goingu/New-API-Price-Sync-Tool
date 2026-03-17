@@ -23,6 +23,7 @@ import { createChannelSourceRatesRouter } from './routes/channelSourceRates.js';
 import { SplitService } from './services/splitService.js';
 import { createChannelSplitRouter } from './routes/channelSplit.js';
 import { createModelGroupRouter } from './routes/modelGroups.js';
+import { createGatewayRouter } from './routes/gateway.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -68,7 +69,7 @@ app.use('/api/logs', createLogsRouter(store));
 // Channels router has two mount points:
 // - POST /api/proxy/channels  (proxied channel fetch)
 // - POST /api/channels/compare (local comparison)
-const channelsRouter = createChannelsRouter();
+const channelsRouter = createChannelsRouter(store);
 app.use('/api', channelsRouter);       // handles /api/proxy/channels
 app.use('/api/channels', channelsRouter); // handles /api/channels/compare
 
@@ -95,6 +96,9 @@ app.use('/api/channel-split', createChannelSplitRouter(splitService));
 
 // Model group routes
 app.use('/api/model-groups', createModelGroupRouter());
+
+// Gateway proxy — OpenAI-compatible /v1/* endpoint
+app.use('/v1', createGatewayRouter(store));
 
 // Serve static files from web dist in production
 if (process.env.NODE_ENV === 'production') {

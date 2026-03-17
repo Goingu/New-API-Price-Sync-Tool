@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import {
   Alert,
   Button,
+  Card,
   Form,
   Input,
   Modal,
   Popconfirm,
   Select,
   Space,
+  Spin,
   Switch,
   Table,
   Tag,
@@ -20,6 +22,7 @@ import {
   ThunderboltOutlined,
   EditOutlined,
   DeleteOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type {
@@ -504,30 +507,60 @@ export default function LivenessManagement() {
   };
 
   // -----------------------------------------------------------------------
+  // Summary stats
+  // -----------------------------------------------------------------------
+
+  const stats = useMemo(() => {
+    let online = 0, offline = 0, slow = 0, unchecked = 0;
+    for (const c of configs) {
+      for (const modelId of c.models) {
+        const r = c.latestResults?.find((lr) => lr.modelId === modelId);
+        if (!r) { unchecked++; continue; }
+        if (r.status === 'online') online++;
+        else if (r.status === 'offline') offline++;
+        else if (r.status === 'slow') slow++;
+      }
+    }
+    return { online, offline, slow, unchecked, total: online + offline + slow + unchecked };
+  }, [configs]);
+
+  // -----------------------------------------------------------------------
   // Render
   // -----------------------------------------------------------------------
 
   return (
     <div>
-      <Title level={4} style={{ marginBottom: 24 }}>
-        模型活性检测
-      </Title>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+        <Title level={4} style={{ margin: 0 }}>模型活性检测</Title>
+        <Space>
+          <Button icon={<ReloadOutlined />} onClick={loadConfigs} loading={loading}>
+            刷新
+          </Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openAddModal}>
+            添加配置
+          </Button>
+          <Button
+            icon={<ThunderboltOutlined />}
+            loading={!!checkLoading['all']}
+            onClick={handleCheckAll}
+          >
+            全部检测
+          </Button>
+        </Space>
+      </div>
 
-      {/* Action bar */}
-      <Space style={{ marginBottom: 16 }}>
-        <Button type="primary" icon={<PlusOutlined />} onClick={openAddModal}>
-          添加检测配置
-        </Button>
-        <Button
-          icon={<ThunderboltOutlined />}
-          loading={!!checkLoading['all']}
-          onClick={handleCheckAll}
-        >
-          全部检测
-        </Button>
-      </Space>
+      {/* Stats summary */}
+      {configs.length > 0 && (
+        <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
+          <Tag>{configs.length} 个配置</Tag>
+          <Tag>共 {stats.total} 个模型</Tag>
+          {stats.online > 0 && <Tag color="green">{stats.online} 在线</Tag>}
+          {stats.slow > 0 && <Tag color="orange">{stats.slow} 响应慢</Tag>}
+          {stats.offline > 0 && <Tag color="red">{stats.offline} 离线</Tag>}
+          {stats.unchecked > 0 && <Tag>{stats.unchecked} 未检测</Tag>}
+        </div>
+      )}
 
-      {/* Error */}
       {error && (
         <Alert
           type="error"
@@ -540,24 +573,24 @@ export default function LivenessManagement() {
         />
       )}
 
-      {/* Main table */}
-      <Table<ConfigRow>
-        columns={columns}
-        dataSource={configs}
-        rowKey="id"
-        loading={loading}
-        expandable={{
-          expandedRowRender,
-          onExpand: (expanded, record) => {
-            if (expanded && record.id != null && historyMap[record.id] === undefined) {
-              // Don't auto-load history; user clicks button
-            }
-          },
-        }}
-        pagination={false}
-      />
+      <Card styles={{ body: { padding: 0 } }}>
+        <Table<ConfigRow>
+          columns={columns}
+          dataSource={configs}
+          rowKey="id"
+          loading={loading}
+          expandable={{
+            expandedRowRender,
+            onExpand: (expanded, record) => {
+              if (expanded && record.id != null && historyMap[record.id] === undefined) {
+                // Don't auto-load history; user clicks button
+              }
+            },
+          }}
+          pagination={false}
+        />
+      </Card>
 
-      {/* Add / Edit Modal */}
       <Modal
         title={editingConfig ? '编辑检测配置' : '添加检测配置'}
         open={modalOpen}

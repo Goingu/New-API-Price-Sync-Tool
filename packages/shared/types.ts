@@ -206,13 +206,16 @@ export interface ChannelSource {
   id?: number;
   name: string;
   baseUrl: string;
-  apiKey: string;
+  apiKey: string; // 系统 Key：用于从渠道源获取数据
+  channelKey?: string; // 请求 Key：推送到 New API 时使用（可选）
   userId?: string;
   enabled: boolean;
   createdAt: string;
   isOwnInstance?: boolean; // 标记是否为自有实例
   groupName?: string; // 分组名称(如 VIP1, VIP2, 普通用户等)
   parentSourceId?: number; // 父渠道源ID,用于关联同一渠道的不同分组
+  detectedBasePrice?: number; // 自动检测到的基础价格（USD/1M tokens）
+  remark?: string; // 备注
 }
 
 // --- Checkin Types ---
@@ -643,6 +646,19 @@ export interface BatchDeleteResult {
   }[];
   totalSuccess: number;
   totalFailed: number;
+}
+
+/** 批量模型名称映射请求 */
+export interface BatchModelMappingRequest {
+  channelIds: number[];
+  mappings: Record<string, string>; // originalModelId -> targetModelId
+}
+
+/** 批量模型名称映射结果 */
+export interface BatchModelMappingResult {
+  totalSuccess: number;
+  totalFailed: number;
+  results: { channelId: number; channelName: string; success: boolean; error?: string }[];
 }
 
 /** 批量优先级更新结果 */

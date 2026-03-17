@@ -21,6 +21,8 @@ const Dashboard = lazy(() => import('./pages/Dashboard'));
 const ChannelPriority = lazy(() => import('./pages/ChannelPriority'));
 const ChannelSplit = lazy(() => import('./pages/ChannelSplit'));
 const ModelGroupManagement = lazy(() => import('./pages/ModelGroupManagement'));
+const OpenClawConfig = lazy(() => import('./pages/OpenClawConfig'));
+const GatewaySettings = lazy(() => import('./pages/GatewaySettings'));
 
 function RouteLoading() {
   return (
@@ -73,6 +75,8 @@ function AppRoutes() {
           <Route path="channel-priority" element={<ChannelPriority />} />
           <Route path="channel-split" element={<ChannelSplit />} />
           <Route path="model-groups" element={<ModelGroupManagement />} />
+          <Route path="openclaw-config" element={<OpenClawConfig />} />
+          <Route path="gateway" element={<GatewaySettings />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Route>
@@ -110,7 +114,6 @@ export default function App() {
         components: {
           Layout: {
             headerBg: '#ffffff',
-            headerBorderBottom: '1px solid #e5e7eb',
             siderBg: '#ffffff',
             bodyBg: '#fafafa',
           },

@@ -125,13 +125,86 @@ async function createChannel(
     headers['New-Api-User'] = connection.userId;
   }
 
-  const { data } = await axios.post(url, channelConfig, { headers, timeout: 30_000 });
-  
-  // New API may wrap the response in { success, data } or return the channel directly
-  if (data?.data) {
-    return data.data;
+  console.log(`[createChannel] Creating channel: ${channelConfig.name}`);
+
+  // Get channels before creation to compare
+  const channelsBefore = await fetchChannels(connection);
+  const beforeIds = new Set(channelsBefore.map(ch => ch.id));
+
+  // Check if channel with same name already exists
+  const existingChannel = channelsBefore.find(ch => ch.name === channelConfig.name);
+  if (existingChannel) {
+    console.warn(`[createChannel] Channel "${channelConfig.name}" already exists (id=${existingChannel.id})`);
+    return existingChannel;
   }
-  return data;
+
+  try {
+    // New API expects the request body in this format:
+    // { mode: "single", channel: { ...channelConfig } }
+    const requestBody = {
+      mode: 'single',
+      channel: channelConfig
+    };
+
+    const response = await axios.post(url, requestBody, {
+      headers,
+      timeout: 30_000,
+      validateStatus: () => true // Accept all status codes
+    });
+
+    // Check for error responses
+    if (response.data && typeof response.data === 'object') {
+      if (response.data.success === false || response.data.error) {
+        const errorMsg = response.data.message || response.data.error || 'Unknown error';
+        console.error(`[createChannel] New API error:`, errorMsg);
+        throw new Error(`New API rejected channel creation: ${errorMsg}`);
+      }
+    }
+
+    // If response is successful (2xx status), fetch channels to find the new one
+    if (response.status >= 200 && response.status < 300) {
+      // Wait for the channel to be created
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      const channelsAfter = await fetchChannels(connection);
+      const newChannels = channelsAfter.filter(ch => !beforeIds.has(ch.id));
+
+      const newChannel = newChannels.find(ch => ch.name === channelConfig.name);
+
+      if (newChannel) {
+        console.log(`[createChannel] Created channel: ${newChannel.name} (id=${newChannel.id})`);
+        return newChannel;
+      }
+
+      // Fallback: use the newest channel
+      if (newChannels.length > 0) {
+        const newestChannel = newChannels[0];
+        console.warn(`[createChannel] Using newest channel: ${newestChannel.name} (id=${newestChannel.id})`);
+        return newestChannel;
+      }
+
+      throw new Error('Failed to find newly created channel');
+    }
+
+    // Legacy support: if response.data has channel info
+    const data = response.data;
+    if (data?.success && data?.data && typeof data.data === 'object' && data.data.id) {
+      return data.data;
+    }
+
+    if (data && typeof data === 'object' && data.id) {
+      return data;
+    }
+
+    throw new Error(`Failed to create channel: status ${response.status}`);
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      const errorMsg = error.response?.data?.message || error.message;
+      console.error(`[createChannel] Failed to create ${channelConfig.name}:`, errorMsg);
+      throw new Error(`Failed to create channel: ${errorMsg}`);
+    }
+    throw error;
+  }
 }
 
 /**
@@ -187,27 +260,40 @@ export class SplitService {
     modelFilters?: Map<number, string[]>
   ): Promise<SplitPreview> {
     console.log(`[SplitService] preview: ${channelIds.length} channels`);
-    
+
     // Fetch all channels from New API
     const allChannels = await fetchChannels(connection);
-    
+
     // Filter to only the requested parent channels
     const parentChannels = allChannels.filter(ch => channelIds.includes(ch.id));
-    
+
     if (parentChannels.length === 0) {
       throw new Error('No valid parent channels found');
     }
-    
+
+    // Get channel keys from channel sources
+    const channelSources = this.store.getChannelSources();
+    const channelKeys = new Map<number, string>();
+
+    for (const parent of parentChannels) {
+      // Find matching channel source by base_url
+      const source = channelSources.find(s => s.baseUrl === parent.base_url);
+      if (source?.channelKey) {
+        channelKeys.set(parent.id, source.channelKey);
+        console.log(`[SplitService] Found channel key for ${parent.name} from channel source`);
+      }
+    }
+
     // Generate preview using SplitEngine
     const filters = modelFilters || new Map();
-    const preview = generateSplitPreview(parentChannels, filters, allChannels);
-    
+    const preview = generateSplitPreview(parentChannels, filters, allChannels, channelKeys);
+
     // Validate the preview
     const validation = validateSplitConfig(preview);
     if (!validation.valid) {
       console.warn(`[SplitService] preview validation errors:`, validation.errors);
     }
-    
+
     console.log(`[SplitService] preview: ${preview.totalSubChannels} sub-channels, ${preview.nameConflicts} conflicts`);
     return preview;
   }
@@ -237,6 +323,12 @@ export class SplitService {
     for (const subChannel of preview.subChannels) {
       try {
         const created = await createChannel(connection, subChannel.config);
+        console.log(`[SplitService] createChannel response:`, JSON.stringify(created, null, 2));
+
+        if (!created.id) {
+          console.error(`[SplitService] WARNING: Created channel has no ID!`, created);
+        }
+
         createdSubChannels.push({
           id: created.id,
           name: created.name,
@@ -256,9 +348,10 @@ export class SplitService {
         console.error(`[SplitService] Failed to create sub-channel ${subChannel.name}:`, errorMsg);
       }
     }
-    
+
     const successfulSubChannels = createdSubChannels.filter(sc => sc.success);
     console.log(`[SplitService] Created ${successfulSubChannels.length}/${preview.subChannels.length} sub-channels`);
+    console.log(`[SplitService] Successful sub-channel IDs:`, successfulSubChannels.map(sc => sc.id));
     
     // Step 2: Calculate and update priorities if enabled
     if (options.autoPriority && successfulSubChannels.length > 0) {

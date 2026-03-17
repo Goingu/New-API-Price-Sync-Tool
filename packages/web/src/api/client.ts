@@ -30,6 +30,7 @@ import type {
   RollbackResult,
   SplitSuggestion,
   SplitConfiguration,
+  BatchModelMappingResult,
 } from '@newapi-sync/shared';
 
 /**
@@ -64,6 +65,14 @@ export async function proxyForward<T = unknown>(
     body,
   });
   return data;
+}
+
+/** Fetch the model list from a New API instance (OpenAI /v1/models format). */
+export async function fetchNewApiModels(
+  settings: ConnectionSettings,
+): Promise<{ id: string; owned_by?: string }[]> {
+  const res = await proxyForward<{ data: { id: string; owned_by?: string }[] }>(settings, 'GET', '/v1/models');
+  return res.data?.data ?? [];
 }
 
 // ---------------------------------------------------------------------------
@@ -297,6 +306,21 @@ export async function updateChannelSource(id: number, updates: Partial<ChannelSo
 
 export async function deleteChannelSource(id: number): Promise<{ success: boolean }> {
   const { data } = await api.delete<{ success: boolean }>(`/api/channel-sources/${id}`);
+  return data;
+}
+
+export async function pushChannelSourceToNewApi(
+  id: number,
+  connection: ConnectionSettings
+): Promise<{ success: boolean; message?: string; error?: string; channelId?: number }> {
+  const { data } = await api.post<{ success: boolean; message?: string; error?: string; channelId?: number }>(
+    `/api/channel-sources/${id}/push-to-newapi`,
+    {
+      targetUrl: connection.baseUrl,
+      apiKey: connection.apiKey,
+      userId: connection.userId,
+    }
+  );
   return data;
 }
 
@@ -686,5 +710,40 @@ export async function batchUpdatePriority(
     userId: connection.userId,
     updates,
   });
+  return data;
+}
+
+/** 批量更新模型名称映射 */
+export async function batchUpdateModelMapping(
+  connection: ConnectionSettings,
+  channelIds: number[],
+  mappings: Record<string, string>,
+): Promise<ApiResponse<BatchModelMappingResult>> {
+  const { data } = await api.put<ApiResponse<BatchModelMappingResult>>('/api/channels/batch-model-mapping', {
+    baseUrl: connection.baseUrl,
+    apiKey: connection.apiKey,
+    userId: connection.userId,
+    channelIds,
+    mappings,
+  });
+  return data;
+}
+
+// ---------------------------------------------------------------------------
+// Gateway Settings
+// ---------------------------------------------------------------------------
+
+export async function getGatewaySettings(): Promise<ApiResponse<{ enabled: boolean; apiKey: string | null }>> {
+  const { data } = await api.get('/api/settings/gateway');
+  return data;
+}
+
+export async function updateGatewaySettings(settings: { enabled?: boolean; apiKey?: string }): Promise<ApiResponse<null>> {
+  const { data } = await api.put('/api/settings/gateway', settings);
+  return data;
+}
+
+export async function getGatewayModels(): Promise<ApiResponse<Array<{ id: string; sources: number }>>> {
+  const { data } = await api.get('/api/settings/gateway/models');
   return data;
 }

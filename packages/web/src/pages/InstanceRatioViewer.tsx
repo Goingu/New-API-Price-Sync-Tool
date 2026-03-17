@@ -1,9 +1,10 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Alert,
   Button,
   Card,
   Input,
+  InputNumber,
   Modal,
   Space,
   Spin,
@@ -21,13 +22,206 @@ import {
   WarningOutlined,
   CopyOutlined,
   DeleteOutlined,
+  SyncOutlined,
 } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import type { RatioConfig, Channel } from '@newapi-sync/shared';
+import type { RatioConfig, Channel, ChannelSource } from '@newapi-sync/shared';
 import { useAppContext } from '../context/AppContext';
-import { proxyForward, fetchChannels } from '../api/client';
+import {
+  getChannelSources,
+  compareChannelSourceRatios,
+  proxyForward,
+  fetchChannels,
+} from '../api/client';
 
 const { Title, Text } = Typography;
+
+// --- Source Ratio Comparison Sub-component ---
+
+interface SourceComparisonRow {
+  modelId: string;
+  sourceModelRatio?: number;
+  sourceCompletionRatio?: number;
+  sourceModelPrice?: number;
+  localModelRatio?: number;
+  localCompletionRatio?: number;
+  localModelPrice?: number;
+  hasDiff: boolean;
+}
+
+function SourceRatioContent({
+  sourceRatioConfig,
+  localRatioConfig,
+  focusModelId,
+  sourceSearch,
+  setSourceSearch,
+  selectedSyncModels,
+  setSelectedSyncModels,
+  syncMarkupPercent,
+  setSyncMarkupPercent,
+  syncing,
+  onSync,
+}: {
+  sourceRatioConfig: RatioConfig;
+  localRatioConfig: RatioConfig | null;
+  focusModelId: string;
+  sourceSearch: string;
+  setSourceSearch: (v: string) => void;
+  selectedSyncModels: Set<string>;
+  setSelectedSyncModels: (v: Set<string>) => void;
+  syncMarkupPercent: number;
+  setSyncMarkupPercent: (v: number) => void;
+  syncing: boolean;
+  onSync: () => void;
+}) {
+  const [showAll, setShowAll] = useState(false);
+
+  const rows = useMemo(() => {
+    const allModels = new Set([
+      ...Object.keys(sourceRatioConfig.modelRatio || {}),
+      ...Object.keys(sourceRatioConfig.modelPrice || {}),
+    ]);
+
+    const result: SourceComparisonRow[] = [];
+    allModels.forEach(modelId => {
+      const srcMR = sourceRatioConfig.modelRatio?.[modelId];
+      const srcCR = sourceRatioConfig.completionRatio?.[modelId];
+      const srcMP = sourceRatioConfig.modelPrice?.[modelId];
+      const locMR = localRatioConfig?.modelRatio?.[modelId];
+      const locCR = localRatioConfig?.completionRatio?.[modelId];
+      const locMP = localRatioConfig?.modelPrice?.[modelId];
+
+      const hasDiff = srcMR !== locMR || srcCR !== locCR || srcMP !== locMP;
+
+      result.push({
+        modelId,
+        sourceModelRatio: srcMR,
+        sourceCompletionRatio: srcCR,
+        sourceModelPrice: srcMP,
+        localModelRatio: locMR,
+        localCompletionRatio: locCR,
+        localModelPrice: locMP,
+        hasDiff,
+      });
+    });
+
+    return result.sort((a, b) => a.modelId.localeCompare(b.modelId));
+  }, [sourceRatioConfig, localRatioConfig]);
+
+  const filtered = useMemo(() => {
+    // If not showing all, only show the focused model
+    if (!showAll) {
+      return rows.filter(r => r.modelId === focusModelId);
+    }
+    // When showing all, apply search filter
+    if (!sourceSearch.trim()) return rows;
+    const q = sourceSearch.toLowerCase();
+    return rows.filter(r => r.modelId.toLowerCase().includes(q));
+  }, [rows, focusModelId, showAll, sourceSearch]);
+
+  const sourceColumns: ColumnsType<SourceComparisonRow> = [
+    {
+      title: '模型名称',
+      dataIndex: 'modelId',
+      width: 250,
+      sorter: (a, b) => a.modelId.localeCompare(b.modelId),
+    },
+    {
+      title: '渠道源倍率',
+      key: 'sourceRatio',
+      width: 150,
+      render: (_, r) => {
+        if (r.sourceModelPrice !== undefined && r.sourceModelPrice > 0) {
+          return <Text>{r.sourceModelPrice.toFixed(6)}/次</Text>;
+        }
+        return <Text>{(r.sourceModelRatio ?? 1).toFixed(4)} / {(r.sourceCompletionRatio ?? 1).toFixed(2)}</Text>;
+      },
+    },
+    {
+      title: '当前实例倍率',
+      key: 'localRatio',
+      width: 150,
+      render: (_, r) => {
+        if (r.localModelPrice !== undefined && r.localModelPrice > 0) {
+          return <Text>{r.localModelPrice.toFixed(6)}/次</Text>;
+        }
+        if (r.localModelRatio === undefined && r.localModelPrice === undefined) {
+          return <Text type="secondary">未配置</Text>;
+        }
+        return <Text>{(r.localModelRatio ?? 1).toFixed(4)} / {(r.localCompletionRatio ?? 1).toFixed(2)}</Text>;
+      },
+    },
+    {
+      title: '差异',
+      key: 'diff',
+      width: 80,
+      filters: [{ text: '有差异', value: 'diff' }],
+      onFilter: (_, r) => r.hasDiff,
+      render: (_, r) => r.hasDiff ? <Tag color="warning">不同</Tag> : <Tag color="success">一致</Tag>,
+    },
+  ];
+
+  return (
+    <Space direction="vertical" style={{ width: '100%' }} size="middle">
+      <Space>
+        <Checkbox checked={showAll} onChange={e => setShowAll(e.target.checked)}>
+          显示该渠道源全部模型
+        </Checkbox>
+        {showAll && (
+          <>
+            <Input
+              placeholder="搜索模型名称"
+              prefix={<SearchOutlined />}
+              value={sourceSearch}
+              onChange={e => setSourceSearch(e.target.value)}
+              allowClear
+              style={{ width: 250 }}
+            />
+            <Text type="secondary">共 {filtered.length} 个模型</Text>
+          </>
+        )}
+      </Space>
+
+      <Table<SourceComparisonRow>
+        rowKey="modelId"
+        columns={sourceColumns}
+        dataSource={filtered}
+        size="small"
+        scroll={{ y: 400 }}
+        pagination={false}
+        rowSelection={{
+          selectedRowKeys: Array.from(selectedSyncModels),
+          onChange: (keys) => setSelectedSyncModels(new Set(keys as string[])),
+        }}
+      />
+
+      <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+        <Space>
+          <Text>加价百分比:</Text>
+          <InputNumber
+            value={syncMarkupPercent}
+            onChange={v => setSyncMarkupPercent(v ?? 0)}
+            min={0}
+            max={500}
+            addonAfter="%"
+            style={{ width: 120 }}
+          />
+        </Space>
+        <Button
+          type="primary"
+          icon={<SyncOutlined />}
+          onClick={onSync}
+          loading={syncing}
+          disabled={selectedSyncModels.size === 0}
+        >
+          同步选中倍率 ({selectedSyncModels.size})
+        </Button>
+      </Space>
+    </Space>
+  );
+}
+
+// --- Main Component ---
 
 interface RatioRow {
   modelId: string;
@@ -40,6 +234,8 @@ interface RatioRow {
   pricingType?: 'per_token' | 'per_request';
   pricePerRequest?: number;
   channelNames?: string; // 渠道商名称列表
+  channelDetails?: { name: string; id: number; baseUrl?: string; key?: string }[]; // 渠道连接信息
+  isConfigured: boolean; // 是否在倍率配置中有明确条目
 }
 
 export default function InstanceRatioViewer() {
@@ -59,6 +255,18 @@ export default function InstanceRatioViewer() {
   const [selectedModelIds, setSelectedModelIds] = useState<string[]>([]);
   const [deleting, setDeleting] = useState(false);
   const [channels, setChannels] = useState<Channel[]>([]);
+  const [channelSources, setChannelSources] = useState<ChannelSource[]>([]);
+
+  // Source ratio modal state
+  const [sourceModalVisible, setSourceModalVisible] = useState(false);
+  const [sourceLoading, setSourceLoading] = useState(false);
+  const [sourceRatioConfig, setSourceRatioConfig] = useState<RatioConfig | null>(null);
+  const [sourceChannelName, setSourceChannelName] = useState('');
+  const [sourceSearch, setSourceSearch] = useState('');
+  const [selectedSyncModels, setSelectedSyncModels] = useState<Set<string>>(new Set());
+  const [syncing, setSyncing] = useState(false);
+  const [syncMarkupPercent, setSyncMarkupPercent] = useState(0);
+  const [sourceModelId, setSourceModelId] = useState<string>('');
 
   // Cache key for localStorage
   const getCacheKey = () => {
@@ -80,9 +288,8 @@ export default function InstanceRatioViewer() {
         if (cachedModels) {
           setAvailableModels(new Set(cachedModels));
         }
-        console.log('Loaded cached ratio config from:', fetchedAt);
       }
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Failed to load cached ratio config:', err);
     }
   }, [connection?.baseUrl]);
@@ -99,9 +306,6 @@ export default function InstanceRatioViewer() {
         'GET',
         '/api/pricing'
       );
-      console.log('Fetch pricing response:', resp);
-      console.log('Response data type:', typeof resp.data);
-      console.log('Response data keys:', resp.data ? Object.keys(resp.data) : 'null');
 
       if (resp.success && resp.data) {
         // Handle both direct array and nested data structure
@@ -110,24 +314,19 @@ export default function InstanceRatioViewer() {
         if (Array.isArray(resp.data)) {
           // Direct array response
           dataArray = resp.data;
-          console.log('Direct array response, length:', dataArray.length);
         } else if (resp.data.data && Array.isArray(resp.data.data)) {
           // Nested data.data response
           dataArray = resp.data.data;
-          console.log('Nested data.data response, length:', dataArray.length);
         } else {
           // Try to extract from object with numeric keys
           const dataObj = resp.data as any;
-          console.log('Object response, keys:', Object.keys(dataObj));
           
           // Flatten all arrays from numeric keys
           Object.keys(dataObj).forEach(key => {
             if (Array.isArray(dataObj[key])) {
-              console.log(`Key ${key} has ${dataObj[key].length} items`);
               dataArray = dataArray.concat(dataObj[key]);
             }
           });
-          console.log('Flattened array length:', dataArray.length);
         }
         
         const modelList: string[] = [];
@@ -137,17 +336,13 @@ export default function InstanceRatioViewer() {
           }
         });
         
-        console.log('Total models extracted:', modelList.length);
-        console.log('Sample models:', modelList.slice(0, 10));
         
         const models = new Set(modelList);
         setAvailableModels(models);
-        console.log('Unique models count:', models.size);
         return models;
       } else {
-        console.warn('Failed to fetch models:', resp.error);
       }
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Failed to fetch available models:', err);
     } finally {
       setLoadingModels(false);
@@ -164,8 +359,8 @@ export default function InstanceRatioViewer() {
     setLoading(true);
     setError(undefined);
     try {
-      // Fetch ratio config, available models, and channels
-      const [ratioResp, models, channelResp] = await Promise.all([
+      // Fetch ratio config, available models, channels, and channel sources
+      const [ratioResp, models, channelResp, sourcesResp] = await Promise.all([
         proxyForward<{
           data: {
             model_ratio: Record<string, number>;
@@ -175,10 +370,9 @@ export default function InstanceRatioViewer() {
         }>(connection, 'GET', '/api/ratio_config'),
         fetchAvailableModels(),
         fetchChannels(connection),
+        getChannelSources().catch(() => ({ success: false, sources: [] as ChannelSource[] })),
       ]);
 
-      console.log('Fetch ratios response:', ratioResp);
-      console.log('Fetch channels response:', channelResp);
 
       // Store channels data
       if (channelResp.success && channelResp.data) {
@@ -186,6 +380,11 @@ export default function InstanceRatioViewer() {
           ? channelResp.data
           : (channelResp.data as any)?.data || [];
         setChannels(channelList);
+      }
+
+      // Store channel sources
+      if (sourcesResp.success && sourcesResp.sources) {
+        setChannelSources(sourcesResp.sources);
       }
 
       if (ratioResp.success && ratioResp.data?.data) {
@@ -218,8 +417,7 @@ export default function InstanceRatioViewer() {
               fetchedAt,
               availableModels: models ? Array.from(models) : [],
             }));
-            console.log('Saved ratio config to cache');
-          } catch (err) {
+          } catch (err: unknown) {
             console.error('Failed to save ratio config to cache:', err);
           }
         }
@@ -232,7 +430,7 @@ export default function InstanceRatioViewer() {
         console.error('Fetch ratios failed:', errorMsg);
         setError(errorMsg);
       }
-    } catch (err) {
+    } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('Fetch ratios error:', err);
       setError(`请求失败: ${msg}`);
@@ -324,16 +522,49 @@ export default function InstanceRatioViewer() {
     const rows: RatioRow[] = [];
     const processedModels = new Set<string>();
 
-    // Build model to channels mapping
+    // Build model to channels mapping (including model_mapping)
     const modelToChannels = new Map<string, string[]>();
+    const modelToChannelDetails = new Map<string, { name: string; id: number; baseUrl?: string; key?: string }[]>();
     channels.forEach(channel => {
       if (!channel.models) return;
       const modelList = channel.models.split(',').map(m => m.trim()).filter(Boolean);
+
+      // Parse model_mapping: maps original model name -> exposed model name
+      let mapping: Record<string, string> = {};
+      if (channel.model_mapping && channel.model_mapping.trim()) {
+        try {
+          mapping = JSON.parse(channel.model_mapping);
+        } catch { /* ignore */ }
+      }
+
+      const detail = { name: channel.name, id: channel.id, baseUrl: channel.base_url, key: channel.key };
+
+      // Collect all model names this channel exposes
+      const exposedNames = new Set<string>();
       modelList.forEach(modelId => {
+        exposedNames.add(modelId);
+        // If this model is mapped to a different name, also add the mapped name
+        if (mapping[modelId]) {
+          exposedNames.add(mapping[modelId]);
+        }
+      });
+      // Also add mapping targets where the key might not be in models list
+      Object.values(mapping).forEach(target => exposedNames.add(target));
+
+      exposedNames.forEach(modelId => {
         if (!modelToChannels.has(modelId)) {
           modelToChannels.set(modelId, []);
         }
         modelToChannels.get(modelId)!.push(channel.name);
+
+        if (!modelToChannelDetails.has(modelId)) {
+          modelToChannelDetails.set(modelId, []);
+        }
+        const details = modelToChannelDetails.get(modelId)!;
+        // Deduplicate by channel name
+        if (!details.some(d => d.name === channel.name)) {
+          details.push(detail);
+        }
       });
     });
 
@@ -344,10 +575,6 @@ export default function InstanceRatioViewer() {
       ...(availableModels.size > 0 ? Array.from(availableModels) : []),
     ]);
 
-    console.log('Building rows for', allModelIds.size, 'unique models');
-    console.log('Available models:', availableModels.size);
-    console.log('Model ratio keys:', ratioConfig.modelRatio ? Object.keys(ratioConfig.modelRatio).length : 0);
-    console.log('Model price keys:', ratioConfig.modelPrice ? Object.keys(ratioConfig.modelPrice).length : 0);
 
     // Process each model
     allModelIds.forEach((modelId) => {
@@ -363,8 +590,14 @@ export default function InstanceRatioViewer() {
       const provider = extractProvider(modelId);
       const isAvailable = availableModels.size > 0 ? availableModels.has(modelId) : undefined;
 
+      // Check if model has an explicit entry in ratio config
+      const hasModelRatio = ratioConfig.modelRatio ? modelId in ratioConfig.modelRatio : false;
+      const hasModelPrice = ratioConfig.modelPrice ? modelId in ratioConfig.modelPrice : false;
+      const isConfigured = hasModelRatio || hasModelPrice;
+
       // Get channel names for this model
       const channelNames = modelToChannels.get(modelId)?.join(', ') || '';
+      const channelDetails = modelToChannelDetails.get(modelId) || [];
 
       rows.push({
         modelId,
@@ -377,13 +610,12 @@ export default function InstanceRatioViewer() {
         pricingType,
         pricePerRequest,
         channelNames,
+        channelDetails,
+        isConfigured,
       });
       processedModels.add(modelId);
     });
 
-    console.log('Built', rows.length, 'rows');
-    console.log('Available count:', rows.filter(r => r.isAvailable === true).length);
-    console.log('Per-request count:', rows.filter(r => r.pricingType === 'per_request').length);
 
     return rows;
   }, [ratioConfig, availableModels, channels]);
@@ -399,12 +631,10 @@ export default function InstanceRatioViewer() {
     const matchesProvider = selectedProviders.length > 0
       ? selectedProviders.includes(r.provider)
       : true;
-    // "仅显示未配置倍率" = 真实拥有 + (按Token且倍率为默认值 或 按次但没有价格)
+    // "仅显示未配置倍率" = 模型在倍率配置中没有明确条目
+    // 如果已加载可用模型列表，还要求模型是真实拥有的
     const matchesUnset = showUnsetOnly
-      ? r.isAvailable === true && (
-          (r.pricingType === 'per_token' && r.modelRatio === 1 && r.completionRatio === 1) ||
-          (r.pricingType === 'per_request' && r.pricePerRequest === undefined)
-        )
+      ? !r.isConfigured && (availableModels.size === 0 || r.isAvailable === true)
       : true;
     const matchesAvailable = showAvailableOnly
       ? r.isAvailable === true
@@ -412,12 +642,9 @@ export default function InstanceRatioViewer() {
     return matchesSearch && matchesProvider && matchesUnset && matchesAvailable;
   });
 
-  // Count unset models (available + not configured)
-  const unsetCount = ratioRows.filter(r => 
-    r.isAvailable === true && (
-      (r.pricingType === 'per_token' && r.modelRatio === 1 && r.completionRatio === 1) ||
-      (r.pricingType === 'per_request' && r.pricePerRequest === undefined)
-    )
+  // Count unset models (not configured in ratio config)
+  const unsetCount = ratioRows.filter(r =>
+    !r.isConfigured && (availableModels.size === 0 || r.isAvailable === true)
   ).length;
   const availableCount = ratioRows.filter(r => r.isAvailable === true).length;
   const unavailableCount = ratioRows.filter(r => r.isAvailable === false).length;
@@ -448,7 +675,7 @@ export default function InstanceRatioViewer() {
             <li>如果渠道移除后没有剩余模型，将删除该渠道</li>
             <li>同时清理实例上的倍率配置（ModelRatio、CompletionRatio、ModelPrice）</li>
           </ul>
-          <p style={{ color: '#ff4d4f' }}>此操作不可撤销，请谨慎操作。</p>
+          <p style={{ color: '#ef4444' }}>此操作不可撤销，请谨慎操作。</p>
         </div>
       ),
       okText: '确认删除',
@@ -495,7 +722,7 @@ export default function InstanceRatioViewer() {
                   console.error(`Failed to delete empty channel ${ch.id}:`, delResp.error);
                   channelUpdateFailed++;
                 }
-              } catch (err) {
+              } catch (err: unknown) {
                 console.error(`Failed to delete empty channel ${ch.id}:`, err);
                 channelUpdateFailed++;
               }
@@ -512,7 +739,7 @@ export default function InstanceRatioViewer() {
                   console.error(`Failed to update channel ${ch.id}:`, updateResp.error);
                   channelUpdateFailed++;
                 }
-              } catch (err) {
+              } catch (err: unknown) {
                 console.error(`Failed to update channel ${ch.id}:`, err);
                 channelUpdateFailed++;
               }
@@ -575,7 +802,7 @@ export default function InstanceRatioViewer() {
                   fetchedAt: new Date().toISOString(),
                   availableModels: Array.from(newAvailable),
                 }));
-              } catch (err) {
+              } catch (err: unknown) {
                 console.error('Failed to update cache:', err);
               }
             }
@@ -595,7 +822,7 @@ export default function InstanceRatioViewer() {
           }
 
           setSelectedModelIds([]);
-        } catch (err) {
+        } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
           message.error(`删除失败: ${msg}`);
         } finally {
@@ -604,6 +831,136 @@ export default function InstanceRatioViewer() {
       },
     });
   };
+
+  // Open source ratio modal for a channel
+  const handleOpenSourceRatio = useCallback(async (modelId: string, detail: { name: string; id: number; baseUrl?: string; key?: string }) => {
+    if (!detail.baseUrl) {
+      message.warning(`渠道「${detail.name}」没有 base_url，无法查询上游倍率`);
+      return;
+    }
+
+    // Match channel's base_url to a configured channel source
+    const normalizeUrl = (u: string) => u.replace(/\/+$/, '').toLowerCase();
+    const channelBaseUrl = normalizeUrl(detail.baseUrl);
+    const matchedSource = channelSources.find(s =>
+      s.enabled && normalizeUrl(s.baseUrl) === channelBaseUrl
+    );
+
+    if (!matchedSource || !matchedSource.id) {
+      message.warning(`未找到与「${detail.name}」(${detail.baseUrl}) 匹配的渠道源配置，请先在「渠道源管理」中添加该上游`);
+      return;
+    }
+
+    setSourceChannelName(detail.name);
+    setSourceModelId(modelId);
+    setSourceModalVisible(true);
+    setSourceLoading(true);
+    setSourceRatioConfig(null);
+    setSelectedSyncModels(new Set());
+    setSourceSearch('');
+
+    try {
+      // Use the backend compare-ratios endpoint (same as 实例站倍率同步)
+      const resp = await compareChannelSourceRatios([matchedSource.id]);
+
+      if (resp.success && resp.results.length > 0) {
+        const result = resp.results[0];
+        if (result.success && result.ratioConfig) {
+          setSourceRatioConfig(result.ratioConfig);
+        } else {
+          message.error('获取渠道源倍率失败: ' + (result.error || '未知错误'));
+          setSourceModalVisible(false);
+        }
+      } else {
+        message.error('获取渠道源倍率失败');
+        setSourceModalVisible(false);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      message.error(`请求渠道源失败: ${msg}`);
+      setSourceModalVisible(false);
+    } finally {
+      setSourceLoading(false);
+    }
+  }, [channelSources]);
+
+  // Sync selected models from source to own instance
+  const handleSyncSourceRatios = useCallback(async () => {
+    if (!connection || !sourceRatioConfig) return;
+    if (selectedSyncModels.size === 0) {
+      message.warning('请至少选择一个模型');
+      return;
+    }
+
+    setSyncing(true);
+    try {
+      // Get current instance ratios
+      const currentResp = await proxyForward<{ data: any }>(connection, 'GET', '/api/ratio_config');
+      if (!currentResp.success || !currentResp.data) {
+        throw new Error('获取当前倍率失败');
+      }
+
+      const apiData = currentResp.data.data || currentResp.data;
+      const currentConfig: RatioConfig = {
+        modelRatio: apiData.model_ratio || apiData.modelRatio || {},
+        completionRatio: apiData.completion_ratio || apiData.completionRatio || {},
+        modelPrice: apiData.model_price || apiData.modelPrice || {},
+      };
+
+      const markup = 1 + syncMarkupPercent / 100;
+      let updateCount = 0;
+
+      for (const modelId of selectedSyncModels) {
+        const srcModelPrice = sourceRatioConfig.modelPrice?.[modelId];
+
+        // Per-request model: has modelPrice entry
+        if (srcModelPrice !== undefined) {
+          if (!currentConfig.modelPrice) currentConfig.modelPrice = {};
+          currentConfig.modelPrice[modelId] = srcModelPrice * markup;
+          updateCount++;
+          continue;
+        }
+
+        // Token-based model: use modelRatio + completionRatio
+        const srcModelRatio = sourceRatioConfig.modelRatio?.[modelId];
+        if (srcModelRatio === undefined) continue;
+
+        currentConfig.modelRatio[modelId] = srcModelRatio * markup;
+        currentConfig.completionRatio[modelId] = sourceRatioConfig.completionRatio?.[modelId] ?? 1;
+        updateCount++;
+      }
+
+      if (updateCount === 0) {
+        message.warning('没有可更新的模型');
+        return;
+      }
+
+      const payloads: { key: string; value: string }[] = [
+        { key: 'ModelRatio', value: JSON.stringify(currentConfig.modelRatio) },
+        { key: 'CompletionRatio', value: JSON.stringify(currentConfig.completionRatio) },
+      ];
+      if (currentConfig.modelPrice && Object.keys(currentConfig.modelPrice).length > 0) {
+        payloads.push({ key: 'ModelPrice', value: JSON.stringify(currentConfig.modelPrice) });
+      }
+
+      for (const payload of payloads) {
+        const resp = await proxyForward(connection, 'PUT', '/api/option/', payload);
+        if (!resp.success) {
+          throw new Error(`更新 ${payload.key} 失败: ${resp.error ?? '未知错误'}`);
+        }
+      }
+
+      message.success(`成功同步 ${updateCount} 个模型的倍率`);
+      setSourceModalVisible(false);
+      // Refresh local data
+      fetchRatios();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      message.error(`同步失败: ${msg}`);
+    } finally {
+      setSyncing(false);
+    }
+  }, [connection, sourceRatioConfig, selectedSyncModels, syncMarkupPercent]);
 
   // Row selection config for batch delete
   const rowSelection = {
@@ -629,7 +986,7 @@ export default function InstanceRatioViewer() {
                 onClick={() => handleCopyModelName(modelId)}
               >
                 {modelId}
-                <CopyOutlined style={{ marginLeft: 8, color: '#1890ff', fontSize: 12 }} />
+                <CopyOutlined style={{ marginLeft: 8, color: '#3b82f6', fontSize: 12 }} />
               </span>
             </Tooltip>
             {record.isAvailable !== undefined && (
@@ -672,14 +1029,32 @@ export default function InstanceRatioViewer() {
       ellipsis: {
         showTitle: false,
       },
-      render: (channelNames: string) => {
-        if (!channelNames) {
+      render: (_: string, record: RatioRow) => {
+        const details = record.channelDetails;
+        if (!details || details.length === 0) {
           return <Text type="secondary">-</Text>;
         }
+        // Deduplicate by name
+        const seen = new Set<string>();
+        const unique = details.filter(d => {
+          if (seen.has(d.name)) return false;
+          seen.add(d.name);
+          return true;
+        });
         return (
-          <Tooltip title={channelNames}>
-            <Text style={{ fontSize: 12 }}>{channelNames}</Text>
-          </Tooltip>
+          <Space size={[4, 0]} wrap>
+            {unique.map((d, i) => (
+              <span key={d.name}>
+                <a
+                  onClick={(e) => { e.stopPropagation(); handleOpenSourceRatio(record.modelId, d); }}
+                  style={{ fontSize: 12 }}
+                >
+                  {d.name}
+                </a>
+                {i < unique.length - 1 && <Text type="secondary">, </Text>}
+              </span>
+            ))}
+          </Space>
         );
       },
     },
@@ -708,11 +1083,11 @@ export default function InstanceRatioViewer() {
       sorter: (a, b) => a.modelRatio - b.modelRatio,
       render: (ratio: number, record: RatioRow) => {
         if (record.pricingType === 'per_request') {
-          return <span style={{ color: '#999' }}>不适用</span>;
+          return <span style={{ color: '#a1a1aa' }}>不适用</span>;
         }
         const isUnset = record.isAvailable === true && ratio === 1 && record.completionRatio === 1;
         return (
-          <span style={{ color: isUnset ? '#ff4d4f' : undefined }}>
+          <span style={{ color: isUnset ? '#ef4444' : undefined }}>
             {ratio.toFixed(4)}
             {isUnset && ' ⚠️'}
           </span>
@@ -727,11 +1102,11 @@ export default function InstanceRatioViewer() {
       sorter: (a, b) => a.completionRatio - b.completionRatio,
       render: (ratio: number, record: RatioRow) => {
         if (record.pricingType === 'per_request') {
-          return <span style={{ color: '#999' }}>不适用</span>;
+          return <span style={{ color: '#a1a1aa' }}>不适用</span>;
         }
         const isUnset = record.isAvailable === true && record.modelRatio === 1 && ratio === 1;
         return (
-          <span style={{ color: isUnset ? '#ff4d4f' : undefined }}>
+          <span style={{ color: isUnset ? '#ef4444' : undefined }}>
             {ratio.toFixed(2)}
             {isUnset && ' ⚠️'}
           </span>
@@ -746,7 +1121,7 @@ export default function InstanceRatioViewer() {
       sorter: (a, b) => a.inputPrice - b.inputPrice,
       render: (price: number, record: RatioRow) => {
         if (record.pricingType === 'per_request') {
-          return <span style={{ color: '#999' }}>不适用</span>;
+          return <span style={{ color: '#a1a1aa' }}>不适用</span>;
         }
         return `${price.toFixed(4)}`;
       },
@@ -759,7 +1134,7 @@ export default function InstanceRatioViewer() {
       sorter: (a, b) => a.outputPrice - b.outputPrice,
       render: (price: number, record: RatioRow) => {
         if (record.pricingType === 'per_request') {
-          return <span style={{ color: '#999' }}>不适用</span>;
+          return <span style={{ color: '#a1a1aa' }}>不适用</span>;
         }
         return `${price.toFixed(4)}`;
       },
@@ -772,14 +1147,14 @@ export default function InstanceRatioViewer() {
       sorter: (a, b) => (a.pricePerRequest || 0) - (b.pricePerRequest || 0),
       render: (price: number | undefined, record: RatioRow) => {
         if (record.pricingType !== 'per_request') {
-          return <span style={{ color: '#999' }}>不适用</span>;
+          return <span style={{ color: '#a1a1aa' }}>不适用</span>;
         }
         const isUnset = record.isAvailable === true && price === undefined;
         if (price !== undefined) {
           return `${price.toFixed(6)}/次`;
         }
         return (
-          <span style={{ color: isUnset ? '#ff4d4f' : undefined }}>
+          <span style={{ color: isUnset ? '#ef4444' : undefined }}>
             未配置{isUnset && ' ⚠️'}
           </span>
         );
@@ -962,6 +1337,36 @@ export default function InstanceRatioViewer() {
           </Space>
         </Card>
       )}
+
+      {/* Source Ratio Modal */}
+      <Modal
+        title={`${sourceModelId} 在「${sourceChannelName}」的倍率`}
+        open={sourceModalVisible}
+        onCancel={() => setSourceModalVisible(false)}
+        width={900}
+        footer={null}
+        destroyOnClose
+      >
+        {sourceLoading ? (
+          <div style={{ textAlign: 'center', padding: '40px 0' }}>
+            <Spin tip="正在获取渠道源倍率..." />
+          </div>
+        ) : sourceRatioConfig ? (
+          <SourceRatioContent
+            sourceRatioConfig={sourceRatioConfig}
+            localRatioConfig={ratioConfig}
+            focusModelId={sourceModelId}
+            sourceSearch={sourceSearch}
+            setSourceSearch={setSourceSearch}
+            selectedSyncModels={selectedSyncModels}
+            setSelectedSyncModels={setSelectedSyncModels}
+            syncMarkupPercent={syncMarkupPercent}
+            setSyncMarkupPercent={setSyncMarkupPercent}
+            syncing={syncing}
+            onSync={handleSyncSourceRatios}
+          />
+        ) : null}
+      </Modal>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, Button, Checkbox, Form, Input, InputNumber, Modal, Popconfirm, Space, Spin, Switch, Table, Tag, Tooltip, message } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined, ImportOutlined } from '@ant-design/icons';
+import { Alert, Button, Card, Checkbox, Form, Input, InputNumber, Modal, Popconfirm, Space, Spin, Switch, Table, Tag, Tooltip, Typography, message } from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined, ImportOutlined, CloudUploadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { ChannelSource, ChannelSourcePriceRateConfig } from '@newapi-sync/shared';
 import { useAppContext } from '../context/AppContext';
@@ -14,6 +14,7 @@ import {
   getChannelSourcePriceRates,
   setChannelSourcePriceRate,
   deleteChannelSourcePriceRate,
+  pushChannelSourceToNewApi,
   type ImportCandidate,
 } from '../api/client';
 
@@ -63,7 +64,7 @@ export default function ChannelSourcesPage() {
         });
         setPriceRates(rateMap);
       }
-    } catch (err) {
+    } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       setError(msg);
     } finally {
@@ -100,7 +101,7 @@ export default function ChannelSourcesPage() {
           await deleteChannelSource(id);
           message.success('删除成功');
           fetchSources();
-        } catch (err) {
+        } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
           message.error(`删除失败: ${msg}`);
         }
@@ -120,7 +121,7 @@ export default function ChannelSourcesPage() {
       }
       setModalVisible(false);
       fetchSources();
-    } catch (err) {
+    } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       message.error(`操作失败: ${msg}`);
     }
@@ -138,10 +139,7 @@ export default function ChannelSourcesPage() {
     setSelectedCandidates(new Set());
     try {
       const resp = await getImportCandidates(connection);
-      console.log('[ChannelSources] Import candidates response:', resp);
       if (resp.success) {
-        console.log('[ChannelSources] Candidates count:', resp.candidates?.length);
-        console.log('[ChannelSources] Candidates data:', resp.candidates);
         setCandidates(resp.candidates);
         // Auto-select candidates that don't already exist
         const autoSelected = new Set<string>();
@@ -152,9 +150,8 @@ export default function ChannelSourcesPage() {
       } else {
         message.error('获取渠道列表失败');
       }
-    } catch (err) {
+    } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error('[ChannelSources] Import error:', err);
       message.error(`获取渠道列表失败: ${msg}`);
     } finally {
       setImportLoading(false);
@@ -199,7 +196,7 @@ export default function ChannelSourcesPage() {
         setImportModalVisible(false);
         fetchSources();
       }
-    } catch (err) {
+    } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       message.error(`导入失败: ${msg}`);
     } finally {
@@ -229,7 +226,7 @@ export default function ChannelSourcesPage() {
         return next;
       });
       await fetchSources();
-    } catch (err) {
+    } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       message.error(`保存失败: ${msg}`);
     } finally {
@@ -252,7 +249,7 @@ export default function ChannelSourcesPage() {
         return next;
       });
       await fetchSources();
-    } catch (err) {
+    } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       message.error(`删除失败: ${msg}`);
     } finally {
@@ -264,6 +261,33 @@ export default function ChannelSourcesPage() {
     }
   }, [fetchSources]);
 
+  const handlePushToNewApi = useCallback(async (source: ChannelSource) => {
+    if (!connection) {
+      message.warning('请先在设置页面配置 New API 连接');
+      return;
+    }
+
+    Modal.confirm({
+      title: '推送到 New API',
+      content: `确定要将渠道源「${source.name}${source.groupName ? ` (${source.groupName})` : ''}」推送到 New API 吗？`,
+      okText: '推送',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          const result = await pushChannelSourceToNewApi(source.id!, connection);
+          if (result.success) {
+            message.success(`渠道源已成功推送到 New API${result.channelId ? `，渠道 ID: ${result.channelId}` : ''}`);
+          } else {
+            message.error(`推送失败: ${result.error || '未知错误'}`);
+          }
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          message.error(`推送失败: ${msg}`);
+        }
+      },
+    });
+  }, [connection]);
+
   const columns: ColumnsType<ChannelSource> = [
     { title: 'ID', dataIndex: 'id', key: 'id', width: 60 },
     { title: '名称', dataIndex: 'name', key: 'name', width: 150 },
@@ -272,7 +296,7 @@ export default function ChannelSourcesPage() {
       dataIndex: 'groupName',
       key: 'groupName',
       width: 120,
-      render: (groupName: string | undefined) => groupName ? <Tag color="purple">{groupName}</Tag> : <span style={{ color: '#999' }}>-</span>
+      render: (groupName: string | undefined) => groupName ? <Tag color="purple">{groupName}</Tag> : <span style={{ color: '#a1a1aa' }}>-</span>
     },
     { title: 'Base URL', dataIndex: 'baseUrl', key: 'baseUrl', ellipsis: true },
     {
@@ -326,9 +350,17 @@ export default function ChannelSourcesPage() {
       },
     },
     {
+      title: '备注',
+      dataIndex: 'remark',
+      key: 'remark',
+      width: 150,
+      ellipsis: true,
+      render: (remark: string | undefined) => remark || <span style={{ color: '#a1a1aa' }}>-</span>,
+    },
+    {
       title: '操作',
       key: 'actions',
-      width: 200,
+      width: 280,
       render: (_: unknown, record: ChannelSource) => {
         const hasExisting = priceRates.has(record.id!);
         const isEditing = editingRates.has(record.id!);
@@ -336,9 +368,17 @@ export default function ChannelSourcesPage() {
         const canSave = rate != null && rate > 0 && (isEditing || !hasExisting);
 
         return (
-          <Space size="small">
+          <Space size="small" wrap>
             <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)} />
             <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record.id!)} />
+            <Tooltip title="推送到 New API">
+              <Button
+                type="link"
+                size="small"
+                icon={<CloudUploadOutlined />}
+                onClick={() => handlePushToNewApi(record)}
+              />
+            </Tooltip>
             <Button
               type="primary"
               size="small"
@@ -413,16 +453,20 @@ export default function ChannelSourcesPage() {
   const allSelectableSelected = selectableCount > 0 && candidates.filter((c) => !c.alreadyExists).every((c) => selectedCandidates.has(c.baseUrl));
 
   return (
-    <div style={{ padding: 24 }}>
-      <Space style={{ marginBottom: 16 }}>
-        <Button icon={<ReloadOutlined />} onClick={fetchSources}>刷新</Button>
-        <Button icon={<ImportOutlined />} onClick={handleOpenImport}>从实例导入</Button>
-        <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>添加渠道源</Button>
-      </Space>
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <Typography.Title level={4} style={{ margin: 0 }}>渠道源管理</Typography.Title>
+        <Space>
+          <Button icon={<ReloadOutlined />} onClick={fetchSources}>刷新</Button>
+          <Button icon={<ImportOutlined />} onClick={handleOpenImport}>从实例导入</Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>添加渠道源</Button>
+        </Space>
+      </div>
 
       {error && <Alert type="error" message={error} showIcon closable style={{ marginBottom: 16 }} />}
 
-      <Table
+      <Card styles={{ body: { padding: 0 } }}>
+        <Table
         rowKey="id"
         loading={loading}
         columns={columns}
@@ -431,6 +475,7 @@ export default function ChannelSourcesPage() {
         size="small"
         scroll={{ x: 1200 }}
       />
+      </Card>
 
       {/* Add / Edit Modal */}
       <Modal
@@ -448,11 +493,32 @@ export default function ChannelSourcesPage() {
           <Form.Item name="groupName" label="分组名称" tooltip="可选,用于区分同一渠道的不同价格分组(如VIP1、VIP2等)">
             <Input placeholder="如: VIP1, 普通用户, 企业版等" />
           </Form.Item>
-          <Form.Item name="baseUrl" label="Base URL" rules={[{ required: true, message: '请输入 Base URL' }]}>
+          <Form.Item name="baseUrl" label="Base URL" rules={[
+            { required: true, message: '请输入 Base URL' },
+            { type: 'url', message: '请输入有效的 URL（如 https://api.example.com）' },
+          ]}>
             <Input placeholder="https://api.example.com" />
           </Form.Item>
-          <Form.Item name="apiKey" label="API Key" rules={[{ required: true, message: '请输入 API Key' }]}>
-            <Input.Password />
+          <Form.Item
+            name="apiKey"
+            label="系统 Key"
+            tooltip="用于从渠道源获取模型列表、价格等系统数据的密钥"
+            rules={[
+              { required: true, message: '请输入系统 Key' },
+              { min: 6, message: 'Key 长度至少 6 位' },
+            ]}
+          >
+            <Input.Password placeholder="sk-xxx..." />
+          </Form.Item>
+          <Form.Item
+            name="channelKey"
+            label="请求 Key（模型调用密钥）"
+            tooltip="用于实际调用模型的密钥。拆分渠道时会使用此密钥创建子渠道。如果不填写，拆分功能将无法使用。"
+            rules={[
+              { min: 6, message: 'Key 长度至少 6 位' },
+            ]}
+          >
+            <Input.Password placeholder="sk-xxx... (可选，但拆分渠道时必需)" />
           </Form.Item>
           <Form.Item name="userId" label="User ID">
             <Input placeholder="可选" />
@@ -462,6 +528,9 @@ export default function ChannelSourcesPage() {
           </Form.Item>
           <Form.Item name="isOwnInstance" label="自有实例" valuePropName="checked">
             <Switch />
+          </Form.Item>
+          <Form.Item name="remark" label="备注">
+            <Input.TextArea placeholder="可选，记录渠道相关信息" rows={2} />
           </Form.Item>
         </Form>
       </Modal>

@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import axios from 'axios';
 import type { SQLiteStore } from '../services/sqliteStore.js';
 import type { ChannelSource, RatioConfig, CachedRatioEntry } from '@newapi-sync/shared';
+import { detectBasePrice } from '../services/basePriceDetector.js';
 
 export function createChannelSourcesRouter(store: SQLiteStore): Router {
   const router = Router();
@@ -518,11 +519,21 @@ export function createChannelSourcesRouter(store: SQLiteStore): Router {
               // If ratio_config returned data, use it; otherwise fall through to /api/pricing
               if (Object.keys(ratioConfig.modelRatio).length > 0 || (ratioConfig.modelPrice && Object.keys(ratioConfig.modelPrice).length > 0)) {
                 console.log(`[${source.name}] ratio_config returned ${Object.keys(ratioConfig.modelRatio).length} token-based models and ${ratioConfig.modelPrice ? Object.keys(ratioConfig.modelPrice).length : 0} per-request models`);
+                
+                // Detect base price for this source
+                const detectedBasePrice = detectBasePrice(ratioConfig);
+                if (detectedBasePrice) {
+                  console.log(`[${source.name}] Detected base price: $${detectedBasePrice}/M`);
+                  // Update source with detected base price
+                  store.updateChannelSource(id, { detectedBasePrice });
+                }
+                
                 return {
                   sourceId: id,
                   sourceName: source.name,
                   success: true,
                   ratioConfig,
+                  detectedBasePrice,
                   method: 'ratio_config',
                 };
               }
@@ -764,6 +775,185 @@ export function createChannelSourcesRouter(store: SQLiteStore): Router {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  /**
+   * POST /api/channel-sources/:id/push-to-newapi
+   * Push a channel source to New API instance.
+   */
+  router.post('/:id/push-to-newapi', async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id as string, 10);
+      const { targetUrl, apiKey, userId } = req.body as {
+        targetUrl: string;
+        apiKey: string;
+        userId?: string;
+      };
+
+      if (!targetUrl || !apiKey) {
+        res.status(400).json({ success: false, error: 'Missing targetUrl or apiKey' });
+        return;
+      }
+
+      const source = store.getChannelSourceById(id);
+      if (!source) {
+        res.status(404).json({ success: false, error: 'Channel source not found' });
+        return;
+      }
+
+      const apiBaseUrl = targetUrl.replace(/\/+$/, '');
+      const headers: Record<string, string> = { Authorization: `Bearer ${apiKey}` };
+      if (userId) headers['New-Api-User'] = userId;
+
+      // Create channel in New API
+      const channelData: any = {
+        type: 1, // Custom channel type
+        name: source.groupName ? `${source.name} (${source.groupName})` : source.name,
+        base_url: source.baseUrl,
+        key: source.apiKey,
+        models: '', // Empty string for auto-detection
+        model_mapping: '',
+        status: source.enabled ? 1 : 2,
+        groups: ['default'], // Groups array
+        group: 'default', // Also include group as string for compatibility
+        weight: 0,
+        priority: 0,
+        auto_ban: 1,
+        test_model: '',
+        openai_organization: '',
+        other: '',
+        tag: '',
+        status_code_mapping: '',
+        multi_key_mode: 'random',
+        max_input_tokens: 0,
+        setting: JSON.stringify({
+          force_format: false,
+          thinking_to_content: false,
+          proxy: '',
+          pass_through_body_enabled: false,
+          system_prompt: '',
+          system_prompt_override: false
+        }),
+        settings: JSON.stringify({
+          allow_service_tier: false,
+          disable_store: false,
+          allow_safety_identifier: false
+        })
+      };
+
+      // Wrap in the expected format
+      const requestData = {
+        channel: channelData,
+        mode: 'single'
+      };
+
+      const url = `${apiBaseUrl}/api/channel/`;
+      console.log(`[push-to-newapi] Pushing channel to ${url}`);
+      console.log(`[push-to-newapi] Request data:`, JSON.stringify(requestData, null, 2));
+
+      const response = await axios.post(url, requestData, {
+        headers,
+        timeout: 30_000
+      });
+
+      console.log(`[push-to-newapi] Response status:`, response.status);
+      console.log(`[push-to-newapi] Response data type:`, typeof response.data);
+      console.log(`[push-to-newapi] Response data:`, JSON.stringify(response.data, null, 2));
+
+      // Check if response indicates an error
+      if (response.data && typeof response.data === 'object') {
+        if (response.data.success === false) {
+          res.status(400).json({
+            success: false,
+            error: response.data.message || 'Failed to create channel in New API'
+          });
+          return;
+        }
+      }
+
+      // If response is empty string or doesn't contain error, verify by fetching channels
+      if (response.status === 200 || response.status === 201) {
+        try {
+          // Verify by fetching channels and checking if our channel exists
+          const verifyUrl = `${apiBaseUrl}/api/channel/?p=0&page_size=100`;
+          console.log(`[push-to-newapi] Verifying channel creation by fetching: ${verifyUrl}`);
+
+          const verifyResponse = await axios.get(verifyUrl, { headers, timeout: 10_000 });
+          console.log(`[push-to-newapi] Verify response status:`, verifyResponse.status);
+          console.log(`[push-to-newapi] Verify response data type:`, typeof verifyResponse.data);
+          console.log(`[push-to-newapi] Verify response data:`, JSON.stringify(verifyResponse.data, null, 2));
+
+          let channels: any[] = [];
+
+          // Try different response formats
+          if (Array.isArray(verifyResponse.data)) {
+            channels = verifyResponse.data;
+          } else if (verifyResponse.data?.data) {
+            if (Array.isArray(verifyResponse.data.data)) {
+              channels = verifyResponse.data.data;
+            } else if (verifyResponse.data.data?.items && Array.isArray(verifyResponse.data.data.items)) {
+              channels = verifyResponse.data.data.items;
+            }
+          }
+
+          console.log(`[push-to-newapi] Parsed ${channels.length} channels`);
+          if (channels.length > 0) {
+            console.log(`[push-to-newapi] Sample channel:`, JSON.stringify(channels[0], null, 2));
+          }
+
+          // Look for our channel by name and base_url
+          const createdChannel = channels.find((ch: any) =>
+            ch.name === channelData.name &&
+            (ch.base_url === channelData.base_url || ch.baseUrl === channelData.base_url)
+          );
+
+          if (createdChannel) {
+            console.log(`[push-to-newapi] Channel verified, ID: ${createdChannel.id}`);
+            res.json({
+              success: true,
+              message: 'Channel pushed to New API successfully',
+              channelId: createdChannel.id,
+              verified: true
+            });
+            return;
+          } else {
+            console.log(`[push-to-newapi] Channel not found in verification check`);
+            console.log(`[push-to-newapi] Looking for: name="${channelData.name}", base_url="${channelData.base_url}"`);
+            res.status(400).json({
+              success: false,
+              error: 'Channel creation returned success but channel not found in list. This may indicate insufficient permissions or the channel was created but not visible to this API key.'
+            });
+            return;
+          }
+        } catch (verifyError) {
+          console.error('[push-to-newapi] Verification failed:', verifyError);
+          // If verification fails, still report success based on 200 response
+          res.json({
+            success: true,
+            message: 'Channel pushed (verification skipped)',
+            verified: false
+          });
+          return;
+        }
+      }
+
+      // Unexpected status code
+      res.status(response.status).json({
+        success: false,
+        error: `Unexpected response status: ${response.status}`
+      });
+    } catch (error) {
+      console.error('[push-to-newapi] Error:', error);
+      if (axios.isAxiosError(error)) {
+        const status = error.response?.status ?? 502;
+        const msg = error.response?.data?.message || error.response?.data?.error || error.message;
+        console.error('[push-to-newapi] Axios error response:', error.response?.data);
+        res.status(status).json({ success: false, error: msg });
+        return;
+      }
+      const msg = error instanceof Error ? error.message : String(error);
+      res.status(500).json({ success: false, error: msg });
     }
   });
 

@@ -13,10 +13,10 @@ export function createProxyRouter(): Router {
     try {
       const { targetUrl, apiKey, userId, method, path, body } = req.body as ProxyRequest;
 
-      if (!targetUrl || !apiKey || !method || !path) {
+      if (!targetUrl || !method || !path) {
         res.status(400).json({
           success: false,
-          error: 'Missing required fields: targetUrl, apiKey, method, path',
+          error: 'Missing required fields: targetUrl, method, path',
         } satisfies ProxyResponse);
         return;
       }
@@ -24,9 +24,12 @@ export function createProxyRouter(): Router {
       const url = `${targetUrl.replace(/\/+$/, '')}${path}`;
 
       const headers: Record<string, string> = {
-        Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       };
+
+      if (apiKey) {
+        headers.Authorization = `Bearer ${apiKey}`;
+      }
 
       if (userId) {
         headers['New-Api-User'] = userId;

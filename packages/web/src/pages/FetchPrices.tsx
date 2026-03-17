@@ -71,30 +71,26 @@ export default function FetchPrices() {
 
   return (
     <div>
-      <Title level={4} style={{ marginBottom: 24 }}>
-        抓取官方价格
-      </Title>
-
-      {/* Action buttons */}
-      <Space style={{ marginBottom: 24 }}>
-        <Button
-          type="primary"
-          icon={<CloudDownloadOutlined />}
-          size="large"
-          loading={loading}
-          onClick={() => doFetch(false)}
-        >
-          抓取价格
-        </Button>
-        <Button
-          icon={<ReloadOutlined />}
-          size="large"
-          loading={loading}
-          onClick={() => doFetch(true)}
-        >
-          强制刷新
-        </Button>
-      </Space>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+        <Title level={4} style={{ margin: 0 }}>抓取官方价格</Title>
+        <Space>
+          <Button
+            type="primary"
+            icon={<CloudDownloadOutlined />}
+            loading={loading}
+            onClick={() => doFetch(false)}
+          >
+            抓取价格
+          </Button>
+          <Button
+            icon={<ReloadOutlined />}
+            loading={loading}
+            onClick={() => doFetch(true)}
+          >
+            强制刷新
+          </Button>
+        </Space>
+      </div>
 
       {/* Loading indicator */}
       {loading && (
@@ -215,7 +211,7 @@ function ProviderCard({ result }: { result: ProviderPriceResult }) {
       align: 'right',
       render: (price: number, record: ModelPrice) =>
         record.pricingType === 'per_request'
-          ? <span style={{ color: '#999' }}>—</span>
+          ? <span style={{ color: '#a1a1aa' }}>—</span>
           : `$${price.toFixed(4)}`,
     },
     {
@@ -225,7 +221,7 @@ function ProviderCard({ result }: { result: ProviderPriceResult }) {
       align: 'right',
       render: (price: number, record: ModelPrice) =>
         record.pricingType === 'per_request'
-          ? <span style={{ color: '#999' }}>—</span>
+          ? <span style={{ color: '#a1a1aa' }}>—</span>
           : `$${price.toFixed(4)}`,
     },
     {
@@ -236,7 +232,7 @@ function ProviderCard({ result }: { result: ProviderPriceResult }) {
       render: (price: number | undefined, record: ModelPrice) =>
         record.pricingType === 'per_request' && price !== undefined
           ? `$${price.toFixed(4)}`
-          : <span style={{ color: '#999' }}>—</span>,
+          : <span style={{ color: '#a1a1aa' }}>—</span>,
     },
   ];
 

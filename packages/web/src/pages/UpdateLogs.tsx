@@ -1,5 +1,5 @@
 import { useCallback, useEffect } from 'react';
-import { Alert, Button, Table, Typography } from 'antd';
+import { Alert, Button, Card, Table, Typography } from 'antd';
 import { ReloadOutlined, FileTextOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -96,12 +96,11 @@ export default function UpdateLogs() {
 
   return (
     <div>
-      <Title level={4} style={{ marginBottom: 24 }}>
-        <FileTextOutlined style={{ marginRight: 8 }} />
-        更新日志
-      </Title>
-
-      <div style={{ marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+        <Title level={4} style={{ margin: 0 }}>
+          <FileTextOutlined style={{ marginRight: 8 }} />
+          更新日志
+        </Title>
         <Button icon={<ReloadOutlined />} onClick={loadLogs} loading={loading}>
           刷新
         </Button>
@@ -118,29 +117,31 @@ export default function UpdateLogs() {
         />
       )}
 
-      <Table<UpdateLogEntry>
-        columns={columns}
-        dataSource={logs}
-        rowKey={(r) => String(r.id ?? r.updatedAt)}
-        loading={loading}
-        pagination={{
-          pageSize: 20,
-          showSizeChanger: true,
-          showTotal: (t) => `共 ${t} 条记录`,
-        }}
-        size="middle"
-        expandable={{
-          expandedRowRender: (record) => (
-            <Table<UpdateLogModelDetail>
-              columns={detailColumns}
-              dataSource={record.modelsUpdated}
-              rowKey={(m) => m.modelId}
-              pagination={false}
-              size="small"
-            />
-          ),
-        }}
-      />
+      <Card styles={{ body: { padding: 0 } }}>
+        <Table<UpdateLogEntry>
+          columns={columns}
+          dataSource={logs}
+          rowKey={(r) => String(r.id ?? r.updatedAt)}
+          loading={loading}
+          pagination={{
+            pageSize: 20,
+            showSizeChanger: true,
+            showTotal: (t) => `共 ${t} 条记录`,
+          }}
+          size="middle"
+          expandable={{
+            expandedRowRender: (record) => (
+              <Table<UpdateLogModelDetail>
+                columns={detailColumns}
+                dataSource={record.modelsUpdated}
+                rowKey={(m) => m.modelId}
+                pagination={false}
+                size="small"
+              />
+            ),
+          }}
+        />
+      </Card>
     </div>
   );
 }

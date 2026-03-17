@@ -75,7 +75,7 @@ export default function Dashboard() {
                     const latest = resp.logs[0];
                     setLastUpdateTime(new Date(latest.updatedAt).toLocaleString());
                 }
-            } catch (err) {
+            } catch (err: unknown) {
                 console.error('Failed to fetch update logs:', err);
             }
         };
@@ -94,7 +94,7 @@ export default function Dashboard() {
                     const failed = total - success;
                     setCheckinStats({ total, success, failed });
                 }
-            } catch (err) {
+            } catch (err: unknown) {
                 console.error('Failed to fetch checkin records:', err);
             }
         };
@@ -110,7 +110,7 @@ export default function Dashboard() {
     return (
         <div style={{ maxWidth: 1200, margin: '0 auto' }}>
             <div style={{ marginBottom: 32 }}>
-                <Title level={2} style={{ marginBottom: 8, color: '#1f1f1f' }}>
+                <Title level={2} style={{ marginBottom: 8 }}>
                     欢迎回来
                 </Title>
                 <Text type="secondary" style={{ fontSize: 16 }}>
@@ -173,9 +173,9 @@ export default function Dashboard() {
                             <div style={{
                                 display: 'inline-block',
                                 padding: 10,
-                                background: '#f5f5f5',
+                                background: '#fafafa',
                                 borderRadius: 8,
-                                border: '1px solid #e0e0e0'
+                                border: '1px solid #e5e7eb'
                             }}>
                                 <img
                                     src="/wechat-group.png"
@@ -190,7 +190,7 @@ export default function Dashboard() {
                                         target.style.display = 'none';
                                         const parent = target.parentElement;
                                         if (parent) {
-                                            parent.innerHTML = '<div style="width: 160px; height: 160px; display: flex; align-items: center; justify-content: center; color: #999; font-size: 12px; text-align: center;">请添加二维码<br/>wechat-group.png</div>';
+                                            parent.innerHTML = '<div style="width: 160px; height: 160px; display: flex; align-items: center; justify-content: center; color: #a1a1aa; font-size: 12px; text-align: center;">请添加二维码<br/>wechat-group.png</div>';
                                         }
                                     }}
                                 />
@@ -206,9 +206,9 @@ export default function Dashboard() {
                             <div style={{
                                 display: 'inline-block',
                                 padding: 10,
-                                background: '#f5f5f5',
+                                background: '#fafafa',
                                 borderRadius: 8,
-                                border: '1px solid #e0e0e0'
+                                border: '1px solid #e5e7eb'
                             }}>
                                 <img
                                     src="/wechat-sponsor.png"
@@ -223,7 +223,7 @@ export default function Dashboard() {
                                         target.style.display = 'none';
                                         const parent = target.parentElement;
                                         if (parent) {
-                                            parent.innerHTML = '<div style="width: 160px; height: 160px; display: flex; align-items: center; justify-content: center; color: #999; font-size: 12px; text-align: center;">请添加二维码<br/>wechat-sponsor.png</div>';
+                                            parent.innerHTML = '<div style="width: 160px; height: 160px; display: flex; align-items: center; justify-content: center; color: #a1a1aa; font-size: 12px; text-align: center;">请添加二维码<br/>wechat-sponsor.png</div>';
                                         }
                                     }}
                                 />
@@ -236,6 +236,23 @@ export default function Dashboard() {
                 </Col>
             </Row>
 
+            {/* Connection required alert */}
+            {!isConnected && (
+                <Alert
+                    type="warning"
+                    showIcon
+                    icon={<WarningOutlined />}
+                    message="尚未连接到 New API 实例"
+                    description="请先前往设置页面配置连接信息，才能使用倍率管理、价格对比等功能。"
+                    action={
+                        <Button type="primary" size="small" onClick={() => navigate('/settings')}>
+                            前往设置
+                        </Button>
+                    }
+                    style={{ marginBottom: 24 }}
+                />
+            )}
+
             {/* Quick Stats Grid */}
             <Row gutter={[24, 24]} style={{ marginBottom: 32 }}>
                 <Col xs={24} sm={12} lg={6}>
@@ -243,7 +260,7 @@ export default function Dashboard() {
                         <Statistic
                             title="连接状态"
                             value={isConnected ? '已连接' : '未连接'}
-                            valueStyle={{ color: isConnected ? '#34a853' : '#ea4335', fontWeight: 600 }}
+                            valueStyle={{ color: isConnected ? '#22c55e' : '#ef4444', fontWeight: 600 }}
                             prefix={<CheckCircleOutlined />}
                         />
                     </Card>
@@ -253,7 +270,7 @@ export default function Dashboard() {
                         <Statistic
                             title="当前倍率模型总数"
                             value={hasRatios ? numCurrentModels : '未知'}
-                            valueStyle={{ color: '#1a73e8', fontWeight: 600 }}
+                            valueStyle={{ color: '#3b82f6', fontWeight: 600 }}
                             prefix={<PercentageOutlined />}
                         />
                     </Card>
@@ -263,7 +280,7 @@ export default function Dashboard() {
                         <Statistic
                             title="最新上游拉取"
                             value={state.upstreamPrices.loading ? '获取中...' : (state.upstreamPrices.results.length > 0 ? state.upstreamPrices.results.length + ' 渠道' : '0')}
-                            valueStyle={{ color: '#1a73e8', fontWeight: 600 }}
+                            valueStyle={{ color: '#3b82f6', fontWeight: 600 }}
                             prefix={<CloudDownloadOutlined />}
                         />
                         {!state.upstreamPrices.loading && (
@@ -278,7 +295,7 @@ export default function Dashboard() {
                                 title="需要调整的模型"
                                 value={modelsNeedingAdjustment.total}
                                 valueStyle={{
-                                    color: modelsNeedingAdjustment.total > 0 ? '#ea4335' : '#34a853',
+                                    color: modelsNeedingAdjustment.total > 0 ? '#ef4444' : '#22c55e',
                                     fontWeight: 600
                                 }}
                                 prefix={<WarningOutlined />}
@@ -292,6 +309,22 @@ export default function Dashboard() {
                     </Card>
                 </Col>
             </Row>
+
+            {/* Prompt to fetch prices when connected but no data */}
+            {isConnected && state.upstreamPrices.results.length === 0 && !state.upstreamPrices.loading && (
+                <Alert
+                    type="info"
+                    showIcon
+                    message="还没有获取上游价格数据"
+                    description="获取上游价格后，系统可以帮您对比倍率差异、发现需要调整的模型。"
+                    action={
+                        <Button size="small" onClick={() => navigate('/fetch-prices')}>
+                            去抓取价格
+                        </Button>
+                    }
+                    style={{ marginBottom: 24 }}
+                />
+            )}
 
             {/* Alert for models needing adjustment */}
             {modelsNeedingAdjustment.total > 0 && (
@@ -328,10 +361,10 @@ export default function Dashboard() {
                     <Card bordered={false} hoverable onClick={() => navigate('/update-logs')}>
                         <Space direction="vertical" size={0} style={{ width: '100%' }}>
                             <Space>
-                                <ClockCircleOutlined style={{ fontSize: 20, color: '#1a73e8' }} />
+                                <ClockCircleOutlined style={{ fontSize: 20, color: '#3b82f6' }} />
                                 <Text strong>最近一次倍率更新</Text>
                             </Space>
-                            <Text style={{ fontSize: 16, color: '#1a73e8', fontWeight: 600 }}>
+                            <Text style={{ fontSize: 16, color: '#3b82f6', fontWeight: 600 }}>
                                 {lastUpdateTime}
                             </Text>
                         </Space>
@@ -341,18 +374,18 @@ export default function Dashboard() {
                     <Card bordered={false} hoverable onClick={() => navigate('/checkin')}>
                         <Space direction="vertical" size={0} style={{ width: '100%' }}>
                             <Space>
-                                <CheckCircleOutlined style={{ fontSize: 20, color: '#1a73e8' }} />
+                                <CheckCircleOutlined style={{ fontSize: 20, color: '#3b82f6' }} />
                                 <Text strong>签到统计（最近100次）</Text>
                             </Space>
                             <Space size="large">
                                 <Text style={{ fontSize: 16 }}>
-                                    总计: <Text strong style={{ color: '#1a73e8' }}>{checkinStats.total}</Text>
+                                    总计: <Text strong style={{ color: '#3b82f6' }}>{checkinStats.total}</Text>
                                 </Text>
                                 <Text style={{ fontSize: 16 }}>
-                                    成功: <Text strong style={{ color: '#34a853' }}>{checkinStats.success}</Text>
+                                    成功: <Text strong style={{ color: '#22c55e' }}>{checkinStats.success}</Text>
                                 </Text>
                                 <Text style={{ fontSize: 16 }}>
-                                    失败: <Text strong style={{ color: '#ea4335' }}>{checkinStats.failed}</Text>
+                                    失败: <Text strong style={{ color: '#ef4444' }}>{checkinStats.failed}</Text>
                                 </Text>
                             </Space>
                         </Space>
@@ -360,21 +393,21 @@ export default function Dashboard() {
                 </Col>
             </Row>
 
-            <Divider style={{ borderColor: '#e1e3e1' }} />
+            <Divider style={{ borderColor: '#e5e7eb' }} />
 
             {/* Quick Actions */}
             <div style={{ marginBottom: 16 }}>
-                <Title level={4} style={{ marginBottom: 16, color: '#1f1f1f' }}>快速操作</Title>
+                <Title level={4} style={{ marginBottom: 16 }}>快速操作</Title>
                 <Row gutter={[16, 16]}>
                     <Col xs={24} sm={12} md={8}>
                         <Card
                             hoverable
                             bordered={false}
-                            style={{ textAlign: 'center', background: '#e8f0fe', cursor: 'pointer' }}
+                            style={{ textAlign: 'center', background: '#f8fafc', cursor: 'pointer' }}
                             onClick={() => navigate('/current-ratios')}
                         >
-                            <PercentageOutlined style={{ fontSize: 32, color: '#1a73e8', marginBottom: 16 }} />
-                            <Title level={5} style={{ margin: 0, color: '#1a73e8' }}>查看当前倍率</Title>
+                            <PercentageOutlined style={{ fontSize: 32, color: '#18181b', marginBottom: 16 }} />
+                            <Title level={5} style={{ margin: 0, color: '#18181b' }}>查看当前倍率</Title>
                             <Text type="secondary">检查平台现有的倍率配置</Text>
                         </Card>
                     </Col>
@@ -382,11 +415,11 @@ export default function Dashboard() {
                         <Card
                             hoverable
                             bordered={false}
-                            style={{ textAlign: 'center', background: '#e8f0fe', cursor: 'pointer' }}
+                            style={{ textAlign: 'center', background: '#f8fafc', cursor: 'pointer' }}
                             onClick={() => navigate('/fetch-prices')}
                         >
-                            <CloudDownloadOutlined style={{ fontSize: 32, color: '#1a73e8', marginBottom: 16 }} />
-                            <Title level={5} style={{ margin: 0, color: '#1a73e8' }}>抓取官方价格</Title>
+                            <CloudDownloadOutlined style={{ fontSize: 32, color: '#18181b', marginBottom: 16 }} />
+                            <Title level={5} style={{ margin: 0, color: '#18181b' }}>抓取官方价格</Title>
                             <Text type="secondary">从各大提供商同步最新的价格数据</Text>
                         </Card>
                     </Col>
@@ -394,11 +427,11 @@ export default function Dashboard() {
                         <Card
                             hoverable
                             bordered={false}
-                            style={{ textAlign: 'center', background: '#e8f0fe', cursor: 'pointer' }}
+                            style={{ textAlign: 'center', background: '#f8fafc', cursor: 'pointer' }}
                             onClick={() => navigate('/comparison')}
                         >
-                            <SwapOutlined style={{ fontSize: 32, color: '#1a73e8', marginBottom: 16 }} />
-                            <Title level={5} style={{ margin: 0, color: '#1a73e8' }}>对比与更新配置</Title>
+                            <SwapOutlined style={{ fontSize: 32, color: '#18181b', marginBottom: 16 }} />
+                            <Title level={5} style={{ margin: 0, color: '#18181b' }}>对比与更新配置</Title>
                             <Text type="secondary">分析差值并决定是否更新售价</Text>
                         </Card>
                     </Col>
@@ -406,11 +439,11 @@ export default function Dashboard() {
                         <Card
                             hoverable
                             bordered={false}
-                            style={{ textAlign: 'center', background: '#e8f0fe', cursor: 'pointer' }}
+                            style={{ textAlign: 'center', background: '#f8fafc', cursor: 'pointer' }}
                             onClick={() => navigate('/channel-source-ratios')}
                         >
-                            <BranchesOutlined style={{ fontSize: 32, color: '#1a73e8', marginBottom: 16 }} />
-                            <Title level={5} style={{ margin: 0, color: '#1a73e8' }}>渠道源倍率对比</Title>
+                            <BranchesOutlined style={{ fontSize: 32, color: '#18181b', marginBottom: 16 }} />
+                            <Title level={5} style={{ margin: 0, color: '#18181b' }}>渠道源倍率对比</Title>
                             <Text type="secondary">对比多个中转商的倍率，找出最优价格</Text>
                         </Card>
                     </Col>
@@ -418,11 +451,11 @@ export default function Dashboard() {
                         <Card
                             hoverable
                             bordered={false}
-                            style={{ textAlign: 'center', background: '#e8f0fe', cursor: 'pointer' }}
+                            style={{ textAlign: 'center', background: '#f8fafc', cursor: 'pointer' }}
                             onClick={() => navigate('/checkin')}
                         >
-                            <CheckCircleOutlined style={{ fontSize: 32, color: '#1a73e8', marginBottom: 16 }} />
-                            <Title level={5} style={{ margin: 0, color: '#1a73e8' }}>签到管理</Title>
+                            <CheckCircleOutlined style={{ fontSize: 32, color: '#18181b', marginBottom: 16 }} />
+                            <Title level={5} style={{ margin: 0, color: '#18181b' }}>签到管理</Title>
                             <Text type="secondary">管理渠道源的自动签到任务</Text>
                         </Card>
                     </Col>
@@ -430,11 +463,11 @@ export default function Dashboard() {
                         <Card
                             hoverable
                             bordered={false}
-                            style={{ textAlign: 'center', background: '#e8f0fe', cursor: 'pointer' }}
+                            style={{ textAlign: 'center', background: '#f8fafc', cursor: 'pointer' }}
                             onClick={() => navigate('/liveness')}
                         >
-                            <FileTextOutlined style={{ fontSize: 32, color: '#1a73e8', marginBottom: 16 }} />
-                            <Title level={5} style={{ margin: 0, color: '#1a73e8' }}>活性检测</Title>
+                            <FileTextOutlined style={{ fontSize: 32, color: '#18181b', marginBottom: 16 }} />
+                            <Title level={5} style={{ margin: 0, color: '#18181b' }}>活性检测</Title>
                             <Text type="secondary">检测模型的可用性和响应状态</Text>
                         </Card>
                     </Col>
@@ -445,10 +478,10 @@ export default function Dashboard() {
             <div style={{ marginTop: 32 }}>
                 <Card bordered={false} style={{ background: '#ffffff' }}>
                     <Space align="center" style={{ marginBottom: 16 }}>
-                        <FileTextOutlined style={{ fontSize: 20, color: '#1a73e8' }} />
+                        <FileTextOutlined style={{ fontSize: 20, color: '#3b82f6' }} />
                         <Title level={5} style={{ margin: 0 }}>系统概况</Title>
                     </Space>
-                    <p style={{ color: '#5f6368', margin: 0 }}>
+                    <p style={{ color: '#6b7280', margin: 0 }}>
                         如果需要查看过去的倍率更新记录或者健康度检测，可以在侧边栏找到最新的 <strong> 更新日志 </strong> 和 <strong> 活性检测 </strong> 面板。
                     </p>
                 </Card>

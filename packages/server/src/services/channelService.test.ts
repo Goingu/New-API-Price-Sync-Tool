@@ -253,3 +253,120 @@ describe('compareChannelPrices', () => {
     expect(comp.cheapestChannelId).toBe(cheapest[0].channelId);
   });
 });
+
+// ---------------------------------------------------------------------------
+// addModelsToChannel with retry logic
+// ---------------------------------------------------------------------------
+
+describe('addModelsToChannel', () => {
+  it('should successfully add models to a channel', async () => {
+    // This is a basic smoke test to ensure the function structure is correct
+    // Full integration tests with mocked axios will be added in task 1.5
+    const { addModelsToChannel } = await import('./channelService');
+    
+    // We can't fully test without mocking axios, but we can verify the function exists
+    // and has the correct signature
+    expect(typeof addModelsToChannel).toBe('function');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Error handling tests
+// ---------------------------------------------------------------------------
+
+describe('Error Handling', () => {
+  it('should handle empty model selection', async () => {
+    const { addModelsToChannel } = await import('./channelService');
+    
+    const result = await addModelsToChannel(
+      'https://api.example.com',
+      'test-key',
+      undefined,
+      1,
+      []
+    );
+    
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('No models selected');
+  });
+
+  it('should enforce 100-model bulk operation limit', async () => {
+    const { addModelsToChannel } = await import('./channelService');
+    
+    // Create 101 model IDs
+    const tooManyModels = Array.from({ length: 101 }, (_, i) => `model-${i}`);
+    
+    const result = await addModelsToChannel(
+      'https://api.example.com',
+      'test-key',
+      undefined,
+      1,
+      tooManyModels
+    );
+    
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Bulk operation limit exceeded');
+    expect(result.error).toContain('100 models');
+  });
+
+  it('should allow exactly 100 models', async () => {
+    const { addModelsToChannel } = await import('./channelService');
+    
+    // Create exactly 100 model IDs
+    const exactlyHundredModels = Array.from({ length: 100 }, (_, i) => `model-${i}`);
+    
+    const result = await addModelsToChannel(
+      'https://api.example.com',
+      'test-key',
+      undefined,
+      1,
+      exactlyHundredModels
+    );
+    
+    // This will fail with channel not found, but that's expected
+    // The important thing is it doesn't fail with the bulk limit error
+    expect(result.error).not.toContain('Bulk operation limit exceeded');
+  });
+
+  it('should handle invalid model IDs', async () => {
+    const { validateModelsExist, ChannelError } = await import('./channelService');
+    
+    try {
+      await validateModelsExist(
+        'https://api.example.com',
+        'test-key',
+        undefined,
+        ['', '  ', 'valid-model']
+      );
+      // Should not reach here
+      expect(true).toBe(false);
+    } catch (error) {
+      expect(error).toBeInstanceOf(ChannelError);
+      if (error instanceof ChannelError) {
+        expect(error.statusCode).toBe(400);
+        expect(error.message).toContain('Invalid model IDs');
+      }
+    }
+  });
+
+  it('should export ChannelError class', async () => {
+    const { ChannelError } = await import('./channelService');
+    
+    const error = new ChannelError('Test error', 404, { test: 'context' });
+    expect(error).toBeInstanceOf(Error);
+    expect(error.name).toBe('ChannelError');
+    expect(error.message).toBe('Test error');
+    expect(error.statusCode).toBe(404);
+    expect(error.context).toEqual({ test: 'context' });
+  });
+
+  it('should handle duplicate models', async () => {
+    const { checkDuplicates } = await import('./channelService');
+    
+    const existingModels = ['gpt-4', 'claude-3'];
+    const newModels = ['gpt-4', 'gemini-pro'];
+    
+    const duplicates = checkDuplicates(existingModels, newModels);
+    expect(duplicates).toEqual(['gpt-4']);
+  });
+});

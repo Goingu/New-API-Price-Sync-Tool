@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Layout, Menu, Badge, Typography } from 'antd';
 import {
   DashboardOutlined,
@@ -18,6 +18,8 @@ import {
   EyeOutlined,
   SplitCellsOutlined,
   AppstoreOutlined,
+  ExportOutlined,
+  CloudServerOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAppContext } from '../context/AppContext';
@@ -25,7 +27,7 @@ import { useAppContext } from '../context/AppContext';
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
 
-const navItems = [
+const NAV_ITEMS = [
   { key: '/dashboard', icon: <DashboardOutlined />, label: '仪表盘' },
   { key: '/settings', icon: <SettingOutlined />, label: '设置' },
   { key: '/channel-sources', icon: <ApiOutlined />, label: '渠道源管理' },
@@ -37,7 +39,7 @@ const navItems = [
     label: (
       <span>
         渠道拆分
-        <span style={{ fontSize: 10, color: '#999', marginLeft: 4 }}>模型防御机制</span>
+        <span style={{ fontSize: 10, color: '#a1a1aa', marginLeft: 4 }}>模型防御机制</span>
       </span>
     )
   },
@@ -50,7 +52,16 @@ const navItems = [
   { key: '/update-logs', icon: <FileTextOutlined />, label: '更新日志' },
   { key: '/checkin', icon: <CheckCircleOutlined />, label: '签到管理' },
   { key: '/liveness', icon: <HeartOutlined />, label: '活性检测' },
+  { key: '/openclaw-config', icon: <ExportOutlined />, label: '龙虾配置生成' },
+  { key: '/gateway', icon: <CloudServerOutlined />, label: 'API 网关' },
 ];
+
+const STATUS_MAP = {
+  connected: { color: 'green', text: '已连接' },
+  connecting: { color: 'orange', text: '连接中' },
+  error: { color: 'red', text: '未连接' },
+  idle: { color: 'red', text: '未连接' },
+} as const;
 
 export default function AppLayout() {
   const [collapsed, setCollapsed] = useState(false);
@@ -61,8 +72,9 @@ export default function AppLayout() {
   const { status } = state.connection;
   const lastFetchedAt = state.upstreamPrices.lastFetchedAt;
 
-  const statusColor = status === 'connected' ? 'green' : status === 'connecting' ? 'orange' : 'red';
-  const statusText = status === 'connected' ? '已连接' : status === 'connecting' ? '连接中' : '未连接';
+  const statusInfo = STATUS_MAP[status as keyof typeof STATUS_MAP] ?? STATUS_MAP.idle;
+
+  const selectedKeys = useMemo(() => [location.pathname], [location.pathname]);
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
@@ -76,14 +88,14 @@ export default function AppLayout() {
         collapsedWidth={80}
         style={{ background: 'transparent', borderRight: 'none' }}
       >
-        <div style={{ height: 32, margin: 16, textAlign: 'center', color: '#1a73e8', fontWeight: 'bold', fontSize: collapsed ? 14 : 16, whiteSpace: 'nowrap', overflow: 'hidden' }}>
+        <div style={{ height: 32, margin: 16, textAlign: 'center', color: '#18181b', fontWeight: 'bold', fontSize: collapsed ? 14 : 16, whiteSpace: 'nowrap', overflow: 'hidden' }}>
           {collapsed ? '中转' : '中转管理控制台'}
         </div>
         <Menu
           theme="light"
           mode="inline"
-          selectedKeys={[location.pathname]}
-          items={navItems}
+          selectedKeys={selectedKeys}
+          items={NAV_ITEMS}
           onClick={({ key }) => navigate(key)}
           style={{ background: 'transparent', borderRight: 'none' }}
         />
@@ -99,10 +111,10 @@ export default function AppLayout() {
                 上次同步: {new Date(lastFetchedAt).toLocaleString()}
               </Text>
             )}
-            <Badge color={statusColor} text={statusText} />
+            <Badge color={statusInfo.color} text={statusInfo.text} />
           </div>
         </Header>
-        <Content style={{ margin: '0 24px 24px 24px', padding: 24, background: '#ffffff', borderRadius: 24, minHeight: 280, border: '1px solid #e1e3e1', boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)' }}>
+        <Content style={{ margin: '0 24px 24px 24px', padding: 24, background: '#ffffff', borderRadius: 12, minHeight: 280, border: '1px solid #e5e7eb', boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)' }}>
           <Outlet />
         </Content>
       </Layout>

@@ -70,7 +70,7 @@ async function loadConnectionFromDatabase(): Promise<ConnectionSettings | null> 
       return response.data;
     }
     return null;
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Failed to load connection from database:', error);
     return null;
   }
@@ -81,7 +81,7 @@ async function saveConnectionToDatabase(settings: ConnectionSettings | null): Pr
     if (settings) {
       await saveConnectionSettingsAPI(settings);
     }
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Failed to save connection to database:', error);
   }
 }
@@ -307,7 +307,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const dbSettings = await loadConnectionFromDatabase();
         if (dbSettings) {
           // Database has settings, use them and sync to localStorage
-          console.log('Loaded connection from database:', dbSettings);
           dispatch({ type: 'SET_CONNECTION', payload: dbSettings });
           saveConnectionToStorage(dbSettings);
         } else {
@@ -315,12 +314,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const localSettings = loadConnectionFromStorage();
           if (localSettings) {
             // Migrate from localStorage to database
-            console.log('Migrating connection from localStorage to database');
             dispatch({ type: 'SET_CONNECTION', payload: localSettings });
             await saveConnectionToDatabase(localSettings);
           }
         }
-      } catch (error) {
+      } catch (error: unknown) {
         console.error('Failed to load connection:', error);
         // Fallback to localStorage if database fails
         const localSettings = loadConnectionFromStorage();

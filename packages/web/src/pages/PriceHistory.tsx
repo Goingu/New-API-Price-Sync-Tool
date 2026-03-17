@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Button,
+  Card,
   DatePicker,
   Select,
   Space,
@@ -186,7 +187,7 @@ export default function PriceHistory() {
       key: 'inputPrice',
       render: (val: number, record) =>
         record.pricingType === 'per_request'
-          ? <span style={{ color: '#999' }}>不适用</span>
+          ? <span style={{ color: '#a1a1aa' }}>不适用</span>
           : `$${val.toFixed(4)}`,
       sorter: (a, b) => a.inputPricePerMillion - b.inputPricePerMillion,
       width: 200,
@@ -197,7 +198,7 @@ export default function PriceHistory() {
       key: 'outputPrice',
       render: (val: number, record) =>
         record.pricingType === 'per_request'
-          ? <span style={{ color: '#999' }}>不适用</span>
+          ? <span style={{ color: '#a1a1aa' }}>不适用</span>
           : `$${val.toFixed(4)}`,
       sorter: (a, b) => a.outputPricePerMillion - b.outputPricePerMillion,
       width: 200,
@@ -209,7 +210,7 @@ export default function PriceHistory() {
       render: (val: number | undefined, record) =>
         record.pricingType === 'per_request' && val !== undefined
           ? `$${val.toFixed(4)}`
-          : <span style={{ color: '#999' }}>—</span>,
+          : <span style={{ color: '#a1a1aa' }}>—</span>,
       width: 160,
     },
   ];
@@ -228,30 +229,30 @@ export default function PriceHistory() {
 
   return (
     <div>
-      <Title level={4} style={{ marginBottom: 24 }}>
-        <HistoryOutlined style={{ marginRight: 8 }} />
-        价格历史
-      </Title>
-
-      {/* Filters */}
-      <Space wrap style={{ marginBottom: 16 }}>
-        <Select
-          placeholder="按厂商筛选"
-          allowClear
-          style={{ width: 180 }}
-          value={providerFilter}
-          onChange={setProviderFilter}
-          options={providers.map((p) => ({ value: p, label: p }))}
-        />
-        <RangePicker
-          placeholder={['开始日期', '结束日期']}
-          value={timeRange}
-          onChange={(val) => setTimeRange(val as [Dayjs, Dayjs] | null)}
-        />
-        <Button icon={<ReloadOutlined />} onClick={loadHistory} loading={loading}>
-          刷新
-        </Button>
-      </Space>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+        <Title level={4} style={{ margin: 0 }}>
+          <HistoryOutlined style={{ marginRight: 8 }} />
+          价格历史
+        </Title>
+        <Space wrap>
+          <Select
+            placeholder="按厂商筛选"
+            allowClear
+            style={{ width: 180 }}
+            value={providerFilter}
+            onChange={setProviderFilter}
+            options={providers.map((p) => ({ value: p, label: p }))}
+          />
+          <RangePicker
+            placeholder={['开始日期', '结束日期']}
+            value={timeRange}
+            onChange={(val) => setTimeRange(val as [Dayjs, Dayjs] | null)}
+          />
+          <Button icon={<ReloadOutlined />} onClick={loadHistory} loading={loading}>
+            刷新
+          </Button>
+        </Space>
+      </div>
 
       {/* Error */}
       {error && (
@@ -265,16 +266,16 @@ export default function PriceHistory() {
         />
       )}
 
-      {/* History timeline table */}
-      <Table<PriceHistoryEntry>
-        columns={historyColumns}
-        dataSource={filteredEntries}
-        rowKey={(r) => `${r.id ?? r.fetchedAt}-${r.provider}`}
-        loading={loading}
-        pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `共 ${t} 条记录` }}
-        size="middle"
-        style={{ marginBottom: 32 }}
-      />
+      <Card styles={{ body: { padding: 0 } }} style={{ marginBottom: 32 }}>
+        <Table<PriceHistoryEntry>
+          columns={historyColumns}
+          dataSource={filteredEntries}
+          rowKey={(r) => `${r.id ?? r.fetchedAt}-${r.provider}`}
+          loading={loading}
+          pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `共 ${t} 条记录` }}
+          size="middle"
+        />
+      </Card>
 
       {/* Model price trend section */}
       <Title level={5} style={{ marginBottom: 16 }}>
