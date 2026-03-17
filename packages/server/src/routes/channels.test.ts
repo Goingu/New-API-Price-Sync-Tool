@@ -114,7 +114,12 @@ describe('GET /api/channels/:id/available-models', () => {
       query: { targetUrl: 'https://api.example.com', apiKey: 'test-key' },
     };
 
-    // Mock channel response with existing models
+    // Mock store.getChannelSources to return a source matching the channel's base_url
+    vi.spyOn(mockStore, 'getChannelSources').mockReturnValue([
+      { id: 1, name: 'Source 1', baseUrl: 'https://upstream.example.com/v1', apiKey: 'src-key', channelKey: 'ch-key', userId: '', enabled: true, isOwnInstance: false, groupName: null, parentSourceId: null, detectedBasePrice: null, remark: null, createdAt: new Date().toISOString() },
+    ] as any);
+
+    // Mock channel response with existing models and base_url matching the source
     mockedAxios.get.mockResolvedValueOnce({
       data: {
         data: {
@@ -125,56 +130,22 @@ describe('GET /api/channels/:id/available-models', () => {
           model_mapping: '',
           status: 1,
           priority: 0,
+          base_url: 'https://upstream.example.com/v1',
         },
       },
     });
 
-    // Mock models.dev prices
-    const { fetchAllModelsDevPrices } = await import('../services/modelsDevFetcher.js');
-    vi.mocked(fetchAllModelsDevPrices).mockResolvedValueOnce([
-      {
-        provider: 'OpenAI',
-        success: true,
-        models: [
-          {
-            modelId: 'gpt-4o',
-            modelName: 'GPT-4 Optimized',
-            provider: 'OpenAI',
-            inputPricePerMillion: 5.0,
-            outputPricePerMillion: 15.0,
-          },
-          {
-            modelId: 'gpt-3.5-turbo',
-            modelName: 'GPT-3.5 Turbo',
-            provider: 'OpenAI',
-            inputPricePerMillion: 0.5,
-            outputPricePerMillion: 1.5,
-          },
+    // Mock /v1/models response from upstream
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        data: [
+          { id: 'gpt-4o' },
+          { id: 'gpt-3.5-turbo' },
+          { id: 'claude-3-opus' },
+          { id: 'claude-3-sonnet' },
         ],
-        fetchedAt: new Date().toISOString(),
       },
-      {
-        provider: 'Anthropic',
-        success: true,
-        models: [
-          {
-            modelId: 'claude-3-opus',
-            modelName: 'Claude 3 Opus',
-            provider: 'Anthropic',
-            inputPricePerMillion: 15.0,
-            outputPricePerMillion: 75.0,
-          },
-          {
-            modelId: 'claude-3-sonnet',
-            modelName: 'Claude 3 Sonnet',
-            provider: 'Anthropic',
-            inputPricePerMillion: 3.0,
-            outputPricePerMillion: 15.0,
-          },
-        ],
-        fetchedAt: new Date().toISOString(),
-      },
-    ]);
+    });
 
     const routes = (router as any).stack;
     const getRoute = routes.find((r: any) => 
@@ -188,15 +159,15 @@ describe('GET /api/channels/:id/available-models', () => {
       models: [
         {
           modelId: 'gpt-3.5-turbo',
-          modelName: 'GPT-3.5 Turbo',
-          provider: 'OpenAI',
-          description: 'OpenAI - GPT-3.5 Turbo',
+          modelName: 'gpt-3.5-turbo',
+          provider: 'Source 1',
+          description: 'Source 1 - gpt-3.5-turbo',
         },
         {
           modelId: 'claude-3-sonnet',
-          modelName: 'Claude 3 Sonnet',
-          provider: 'Anthropic',
-          description: 'Anthropic - Claude 3 Sonnet',
+          modelName: 'claude-3-sonnet',
+          provider: 'Source 1',
+          description: 'Source 1 - claude-3-sonnet',
         },
       ],
     });
@@ -208,7 +179,12 @@ describe('GET /api/channels/:id/available-models', () => {
       query: { targetUrl: 'https://api.example.com', apiKey: 'test-key' },
     };
 
-    // Mock channel response with no models
+    // Mock store.getChannelSources to return a source matching the channel's base_url
+    vi.spyOn(mockStore, 'getChannelSources').mockReturnValue([
+      { id: 1, name: 'Source 1', baseUrl: 'https://upstream.example.com/v1', apiKey: 'src-key', channelKey: 'ch-key', userId: '', enabled: true, isOwnInstance: false, groupName: null, parentSourceId: null, detectedBasePrice: null, remark: null, createdAt: new Date().toISOString() },
+    ] as any);
+
+    // Mock channel response with no models and base_url matching the source
     mockedAxios.get.mockResolvedValueOnce({
       data: {
         data: {
@@ -219,28 +195,19 @@ describe('GET /api/channels/:id/available-models', () => {
           model_mapping: '',
           status: 1,
           priority: 0,
+          base_url: 'https://upstream.example.com/v1',
         },
       },
     });
 
-    // Mock models.dev prices
-    const { fetchAllModelsDevPrices } = await import('../services/modelsDevFetcher.js');
-    vi.mocked(fetchAllModelsDevPrices).mockResolvedValueOnce([
-      {
-        provider: 'OpenAI',
-        success: true,
-        models: [
-          {
-            modelId: 'gpt-4o',
-            modelName: 'GPT-4 Optimized',
-            provider: 'OpenAI',
-            inputPricePerMillion: 5.0,
-            outputPricePerMillion: 15.0,
-          },
+    // Mock /v1/models response from upstream
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        data: [
+          { id: 'gpt-4o' },
         ],
-        fetchedAt: new Date().toISOString(),
       },
-    ]);
+    });
 
     const routes = (router as any).stack;
     const getRoute = routes.find((r: any) => 
@@ -254,9 +221,9 @@ describe('GET /api/channels/:id/available-models', () => {
       models: [
         {
           modelId: 'gpt-4o',
-          modelName: 'GPT-4 Optimized',
-          provider: 'OpenAI',
-          description: 'OpenAI - GPT-4 Optimized',
+          modelName: 'gpt-4o',
+          provider: 'Source 1',
+          description: 'Source 1 - gpt-4o',
         },
       ],
     });
