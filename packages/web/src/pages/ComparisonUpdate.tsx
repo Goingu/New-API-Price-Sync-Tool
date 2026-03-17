@@ -244,7 +244,7 @@ export default function ComparisonUpdate() {
       </Spin>
 
       <UpdatePreviewModal visible={previewVisible} onCancel={() => setPreviewVisible(false)} onOk={executeUpdate} updating={updating} selectedRows={selectedRows} />
-      <UpdateResultModal visible={resultVisible} onClose={() => setResultVisible(false)} results={updateResults} />
+      <UpdateResultModal visible={resultVisible} onClose={() => setResultVisible(false)} results={updateResults ?? null} />
       <style>{ROW_HIGHLIGHT_CSS}</style>
     </div>
   );
