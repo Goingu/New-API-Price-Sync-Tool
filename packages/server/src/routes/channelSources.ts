@@ -229,8 +229,8 @@ export function createChannelSourcesRouter(store: SQLiteStore): Router {
         for (const item of pricingData) {
           const modelName = item.model_name || item.modelName || item.model;
 
-          // Check for per-request pricing first
-          if (item.model_price !== undefined) {
+          // Check for per-request pricing first (only if model_price > 0)
+          if (item.model_price !== undefined && item.model_price > 0) {
             if (!modelName) continue;
             modelPrice[modelName] = item.model_price;
             console.log(`[${source.name}] Found per-request model: ${modelName} = ${item.model_price}`);
@@ -596,8 +596,8 @@ export function createChannelSourcesRouter(store: SQLiteStore): Router {
               for (const item of pricingData) {
                 const modelName = item.model_name || item.modelName || item.model;
 
-                // Check for per-request pricing first
-                if (item.model_price !== undefined) {
+                // Check for per-request pricing first (only if model_price > 0)
+                if (item.model_price !== undefined && item.model_price > 0) {
                   if (!modelName) continue;
                   modelPrice[modelName] = item.model_price;
                   console.log(`[${source.name}] Found per-request model: ${modelName} = ${item.model_price}`);
