@@ -1,0 +1,18 @@
+services:
+  newapi-sync:
+    image: ghcr.io/goingu/new-api-price-sync-tool:latest
+    container_name: newapi-sync
+    ports:
+      - "7458:3001"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001/api/prices"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
